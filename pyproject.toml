@@ -14,6 +14,14 @@ dependencies = [
 [project.scripts]
 minirun = "minirun.cli.main:main"
 
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["minirun*"]
+exclude = ["specs*", "tests*", "workspace*"]
+
 [tool.ruff]
 line-length = 88
 target-version = "py311"

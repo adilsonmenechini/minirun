@@ -43,6 +43,13 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="*",
         help="Prompt message to send to the LLM",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Increase verbosity (use -v for INFO, -vv for DEBUG)",
+    )
     return parser
 
 
@@ -52,8 +59,14 @@ async def run(
     temperature: float | None,
     max_tokens: int | None,
     message: str,
+    verbose: int = 0,
 ) -> None:
-    boot_init()
+    log_level = None
+    if verbose >= 2:
+        log_level = 10  # DEBUG
+    elif verbose == 1:
+        log_level = 20  # INFO
+    boot_init(log_level=log_level)
 
     provider = get_provider(
         name=provider_name,
@@ -85,6 +98,7 @@ def main() -> None:
             temperature=args.temperature,
             max_tokens=args.max_tokens,
             message=message,
+            verbose=args.verbose,
         )
     )
 
