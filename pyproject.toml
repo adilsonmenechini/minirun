@@ -1,0 +1,42 @@
+[project]
+name = "minirun"
+version = "0.1.0"
+description = "Deterministic runtime for executing specialized tasks with LLMs"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.0.0",
+    "anthropic>=0.30.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+minirun = "minirun.cli.main:main"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pyright]
+include = ["minirun", "tests"]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+
+reportUnknownVariableType = "warning"
+reportUnknownMemberType = "warning"
+reportUnknownArgumentType = "warning"
+reportAttributeAccessIssue = "warning"
+reportUnnecessaryComparison = "warning"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["minirun"]
+omit = ["tests/*"]

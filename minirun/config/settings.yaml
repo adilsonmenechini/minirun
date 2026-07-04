@@ -1,0 +1,14 @@
+# Logging
+log_level: INFO
+
+# Provider settings (non-sensitive)
+# Precedence: .env > settings.yaml > hardcoded defaults
+# API keys MUST go in .env, never in this file.
+
+provider:
+  openai:
+    model: gpt-4o
+    max_tokens: null
+  anthropic:
+    model: claude-sonnet-4-20250514
+    max_tokens: 4096
