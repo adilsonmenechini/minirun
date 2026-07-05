@@ -41,10 +41,16 @@ policy:
     # Skill tools (example)
     - "incident_analysis.analyze_incident"
 
-  # Tools that are explicitly forbidden.
-  # Takes precedence over allowed_tools.
-  denied_tools:
+  # Tools that require user confirmation before execution.
+  # These are operations that modify state (file writes, mutation
+  # endpoints).  The runtime will prompt the user for approval.
+  confirmed_tools:
     - "filesystem.write"
+    - "http.post"
+
+  # Tools that are explicitly forbidden.
+  # Takes precedence over allowed_tools and confirmed_tools.
+  denied_tools:
     - "shell.exec"
 
   # Filesystem paths that tools can access.

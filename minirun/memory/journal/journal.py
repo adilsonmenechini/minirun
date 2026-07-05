@@ -13,7 +13,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-
 # ── Event type constants ────────────────────────────────────────────────
 
 SESSION_STARTED = "session_started"
@@ -22,30 +21,36 @@ PROVIDER_CALLED = "provider_called"
 TOOL_REQUESTED = "tool_requested"
 TOOL_DENIED = "tool_denied"
 TOOL_EXECUTED = "tool_executed"
+TOOL_CONFIRMATION_REQUIRED = "tool_confirmation_required"
 RESPONSE_GENERATED = "response_generated"
 SUMMARY_GENERATED = "summary_generated"
 STATE_TRANSITION = "state_transition"
 
-EVENT_TYPES = frozenset({
-    SESSION_STARTED,
-    PROFILE_LOADED,
-    PROVIDER_CALLED,
-    TOOL_REQUESTED,
-    TOOL_DENIED,
-    TOOL_EXECUTED,
-    RESPONSE_GENERATED,
-    SUMMARY_GENERATED,
-    STATE_TRANSITION,
-})
+EVENT_TYPES = frozenset(
+    {
+        SESSION_STARTED,
+        PROFILE_LOADED,
+        PROVIDER_CALLED,
+        TOOL_REQUESTED,
+        TOOL_DENIED,
+        TOOL_EXECUTED,
+        TOOL_CONFIRMATION_REQUIRED,
+        RESPONSE_GENERATED,
+        SUMMARY_GENERATED,
+        STATE_TRANSITION,
+    }
+)
 
 
 # ── Default paths ───────────────────────────────────────────────────────
+
 
 def _default_db_path() -> Path:
     return Path("workspace/memory/journal.sqlite")
 
 
 # ── EventJournal ────────────────────────────────────────────────────────
+
 
 class EventJournal:
     """Immutable event store backed by SQLite.
@@ -59,6 +64,11 @@ class EventJournal:
         self._db_path = db_path or _default_db_path()
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
+
+    @property
+    def db_path(self) -> Path:
+        """The SQLite database file path for this journal."""
+        return self._db_path
 
     def _init_schema(self) -> None:
         with sqlite3.connect(self._db_path) as conn:
@@ -74,12 +84,10 @@ class EventJournal:
                 )"""
             )
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_events_session "
-                "ON events(session_id)"
+                "CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)"
             )
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_events_type "
-                "ON events(event_type)"
+                "CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_events_timestamp "
@@ -169,6 +177,33 @@ class EventJournal:
             ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
+    def get_sessions(self) -> list[dict[str, Any]]:
+        """Return all sessions with metadata: event count, first/last timestamps.
+
+        Returns a list of dicts, each with:
+        - ``session_id``: UUID of the session
+        - ``event_count``: Number of events for this session
+        - ``first_event``: ISO-8601 timestamp of the first event
+        - ``last_event``: ISO-8601 timestamp of the most recent event
+
+        Ordered by ``last_event`` descending (most recent first).
+        """
+        with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT
+                    session_id,
+                    COUNT(*)           AS event_count,
+                    MIN(timestamp)     AS first_event,
+                    MAX(timestamp)     AS last_event
+                FROM events
+                GROUP BY session_id
+                ORDER BY last_event DESC
+                """
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def count_events(self, event_type: str | None = None) -> int:
         """Count events, optionally filtered by type."""
         with sqlite3.connect(self._db_path) as conn:
@@ -178,13 +213,12 @@ class EventJournal:
                     (event_type,),
                 ).fetchone()
             else:
-                row = conn.execute(
-                    "SELECT COUNT(*) AS cnt FROM events"
-                ).fetchone()
+                row = conn.execute("SELECT COUNT(*) AS cnt FROM events").fetchone()
             return row[0] if row else 0
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
+
 
 def _json_dumps(data: dict[str, Any]) -> str:
     """Serialize dict to JSON string, returning '{}' on failure."""

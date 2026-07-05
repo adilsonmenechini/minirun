@@ -229,6 +229,11 @@ Thumbs.db
 # Environment
 .env.local
 
+workspace/memory/sessions/*
+workspace/memory/knowledge/*
+/**/*.sqlite-*
+/**/*.sqlite
+
 -----
 .clinerules
 .opencode

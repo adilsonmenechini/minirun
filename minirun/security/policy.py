@@ -57,6 +57,7 @@ class PolicyEngine:
                 version=policy_data.get("version", "1.0"),
                 allowed_tools=policy_data.get("allowed_tools", []),
                 denied_tools=policy_data.get("denied_tools", []),
+                confirmed_tools=policy_data.get("confirmed_tools", []),
                 allowed_paths=policy_data.get("allowed_paths", []),
                 allowed_domains=policy_data.get("allowed_domains", []),
             )
@@ -75,21 +76,81 @@ class PolicyEngine:
 
         Evaluation order:
         1. If tool_name in denied_tools → DENY
-        2. If tool_name not in allowed_tools → DENY
-        3. Otherwise → ALLOW
+        2. If tool_name in confirmed_tools → REQUIRES_CONFIRMATION
+        3. If tool_name not in allowed_tools → DENY
+        4. Otherwise → ALLOW
         """
         if self.allow_all:
             return PolicyDecision.ALLOW
 
+        # 1. Denied tools — strictest rule
         if tool_name in self._policy.denied_tools:
             return PolicyDecision.deny(f"Tool '{tool_name}' is denied by policy")
 
+        # 2. Confirmed tools — require user confirmation
+        if tool_name in self._policy.confirmed_tools:
+            return PolicyDecision.require_confirmation(
+                f"Tool '{tool_name}' requires user confirmation"
+            )
+
+        # 3. Allowed-list check
         if self._policy.allowed_tools:
             if tool_name not in self._policy.allowed_tools:
                 return PolicyDecision.deny(
                     f"Tool '{tool_name}' is not in allowed_tools"
                 )
 
+        # 4. Explicitly allowed
+        return PolicyDecision.ALLOW
+
+    def check_confirmation(
+        self, tool_name: str, params: dict[str, object] | None = None
+    ) -> PolicyDecision:
+        """Check if a tool invocation requires user confirmation.
+
+        Returns ``REQUIRES_CONFIRMATION`` if the tool is in
+        ``confirmed_tools``, or if the tool is an inherently destructive
+        operation (write, post, delete, exec) that is not explicitly
+        denied or allowed without confirmation.
+
+        Evaluation order:
+        1. If tool is in ``denied_tools`` → DENY (confirmation cannot override).
+        2. If tool is in ``confirmed_tools`` → REQUIRES_CONFIRMATION.
+        3. Known-destructive tool patterns → REQUIRES_CONFIRMATION
+           (``filesystem.write``, ``shell.exec``, ``http.post``,
+           ``http.put``, ``http.delete``, ``http.patch``).
+        4. Otherwise → ALLOW (no confirmation needed).
+        """
+        if self.allow_all:
+            return PolicyDecision.ALLOW
+
+        # 1. Denied — cannot confirm past a denial
+        if tool_name in self._policy.denied_tools:
+            return PolicyDecision.deny(f"Tool '{tool_name}' is denied by policy")
+
+        # 2. Explicitly listed in confirmed_tools
+        if tool_name in self._policy.confirmed_tools:
+            return PolicyDecision.require_confirmation(
+                f"Tool '{tool_name}' is in confirmed_tools"
+            )
+
+        # 3. Known destructive patterns (hardcoded safety net)
+        _destructive_tools: frozenset[str] = frozenset(
+            {
+                "filesystem.write",
+                "shell.exec",
+                "http.post",
+                "http.put",
+                "http.delete",
+                "http.patch",
+            }
+        )
+        if tool_name in _destructive_tools:
+            return PolicyDecision.require_confirmation(
+                f"Tool '{tool_name}' performs a destructive operation"
+            )
+
+        # 4. No confirmation needed
         return PolicyDecision.ALLOW
 
     def check_path(self, tool_name: str, path: str) -> PolicyDecision:
@@ -142,14 +203,31 @@ class PolicyEngine:
         tool_name: str,
         params: dict[str, object] | None = None,
     ) -> PolicyDecision:
-        """Full evaluation: tool check + path/domain check if applicable.
+        """Full evaluation: tool check + confirmation + path/domain check.
 
         This is the primary method called by the runtime.
+
+        Evaluation order:
+        1. ``check_tool()`` — checks denied / confirmed / allowed lists.
+        2. If the tool requires confirmation, return
+           ``REQUIRES_CONFIRMATION`` immediately (even if path/domain
+           would pass — user must confirm first).
+        3. Path check if ``params['path']`` is present.
+        4. Domain check if ``params['url']`` is present.
+        5. ALLOW if all checks pass.
         """
-        # Step 1: Check tool name
+        # Step 1: Tool-level check (denied / confirmed / allowed)
         decision = self.check_tool(tool_name)
+        if decision.needs_confirmation:
+            self._log_event(
+                tool_name,
+                decision.reason or "requires confirmation",
+                params,
+                level="info",
+            )
+            return decision
         if not decision.allowed:
-            self._log_denial(tool_name, decision.reason or "denied", params)
+            self._log_event(tool_name, decision.reason or "denied", params)
             return decision
 
         params = params or {}
@@ -159,7 +237,7 @@ class PolicyEngine:
         if path is not None and isinstance(path, str):
             decision = self.check_path(tool_name, path)
             if not decision.allowed:
-                self._log_denial(tool_name, decision.reason or "path denied", params)
+                self._log_event(tool_name, decision.reason or "path denied", params)
                 return decision
 
         # Step 3: Check domain if URL present in params
@@ -169,7 +247,7 @@ class PolicyEngine:
             if domain:
                 decision = self.check_domain(tool_name, domain)
                 if not decision.allowed:
-                    self._log_denial(
+                    self._log_event(
                         tool_name,
                         decision.reason or "domain denied",
                         params,
@@ -183,15 +261,19 @@ class PolicyEngine:
         log.info("Reloading security policy from %s", self._config_path)
         self._load()
 
-    def _log_denial(
+    def _log_event(
         self,
         tool_name: str,
         reason: str,
         params: dict[str, object] | None = None,
+        level: str = "warning",
     ) -> None:
-        """Log a policy denial with context."""
-        log.warning(
-            "POLICY DENY: tool=%s reason=%s params=%s",
+        """Log a policy decision with context (denials or confirmations)."""
+        prefix = "POLICY DENY" if "denied" in reason.lower() else "POLICY"
+        log_fn = getattr(log, level, log.warning)
+        log_fn(
+            "%s: tool=%s reason=%s params=%s",
+            prefix,
             tool_name,
             reason,
             params or {},

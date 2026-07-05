@@ -17,13 +17,15 @@ Usage::
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from minirun.log import get_logger
 from minirun.runtime.events import emit_tool_executed
+from minirun.runtime.harness import check_tool_permission
 from minirun.runtime.state import RuntimeState, RuntimeStateMachine
-from minirun.security import PolicyDecision
-from minirun.tools.registry import ToolRegistry, registry as _default_registry
+from minirun.tools.registry import ToolRegistry
+from minirun.tools.registry import registry as _default_registry
 
 log = get_logger("runtime.executor")
 
@@ -77,40 +79,62 @@ class ToolExecutor:
             state_machine.transition(RuntimeState.EXECUTE_TOOL)
 
         # ── 2. Permission check ───────────────────────────────────────
-        from minirun.runtime.harness import check_tool_permission
-
         decision = check_tool_permission(
             tool_name=tool_name,
             params=params,
             session_id=session_id,
         )
-        if decision != PolicyDecision.ALLOW:
+        if decision.needs_confirmation:
+            log.info("tool %s needs confirm: %s", tool_name, decision.reason)
+            return {
+                "success": False,
+                "error": f"Confirmation required: {decision.reason}",
+                "needs_confirmation": True,
+                "tool_name": tool_name,
+                "params": params,
+            }
+        if not decision.allowed:
             log.warning(
-                "Tool %s denied by policy: %s",
+                "tool %s denied: %s",
                 tool_name,
-                decision.value,
+                decision.reason or decision.value,
             )
-            return {"success": False, "error": f"Policy denied: {decision.value}"}
+            return {
+                "success": False,
+                "error": (f"Policy denied: {decision.reason or decision.value}"),
+            }
 
         # ── 3. Registry lookup ────────────────────────────────────────
         tool = self._registry.get_tool(tool_name)
         if tool is None:
-            log.warning("Unknown tool: %s", tool_name)
+            log.warning("unknown tool: %s", tool_name)
             return {"success": False, "error": f"Unknown tool: {tool_name}"}
 
-        # ── 4. Execute ────────────────────────────────────────────────
+        # ── 4. Execute (with latency measurement) ─────────────────────
         execute_fn = tool["execute"]
+        start_time = time.monotonic()
         try:
             result = execute_fn(tool_name, params or {}, tool)
         except Exception as exc:
-            log.error("Tool execution failed: %s — %s", tool_name, exc)
-            return {"success": False, "error": str(exc)}
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 1)
+            log.error("tool fail %.1fms %s: %s", elapsed_ms, tool_name, exc)
+            return {
+                "success": False,
+                "error": str(exc),
+                "latency_ms": elapsed_ms,
+            }
+        elapsed_ms = round((time.monotonic() - start_time) * 1000, 1)
 
-        # ── 5. Event journaling ───────────────────────────────────────
+        # ── 5. Event journaling (with latency) ────────────────────────
         emit_tool_executed(
             tool_name=tool_name,
             result=result,
             session_id=session_id,
+            latency_ms=elapsed_ms,
         )
+
+        # Attach latency to result for downstream consumers
+        if isinstance(result, dict):
+            result["latency_ms"] = elapsed_ms
 
         return result

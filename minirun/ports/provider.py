@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from minirun.log import get_logger
@@ -86,6 +86,31 @@ class BaseProvider(abc.ABC):
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> Response: ...
+
+    async def stream_complete(
+        self,
+        messages: list[Message],
+        tools: list[Tool] | None = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> Response:
+        """Stream a chat completion, yielding content tokens as they arrive.
+
+        Default implementation falls back to non-streaming :meth:`complete`.
+        Providers that support streaming SHOULD override this method to
+        yield tokens incrementally via ``sys.stdout.write()``.
+
+        Returns:
+            A :class:`Response` with the full content (same as non-streaming).
+        """
+        return await self.complete(
+            messages=messages,
+            tools=tools,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
 
 
 async def call_with_retry(

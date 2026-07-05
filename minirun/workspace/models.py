@@ -6,6 +6,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from minirun.log import get_logger
+
+log = get_logger("workspace.models")
+
 
 @dataclass
 class MCPServerConfig:
@@ -76,6 +80,63 @@ class WorkspaceProfile:
             mcp_servers=mcp_servers,
         )
 
+    def apply_extensions(
+        self,
+        extensions: list[WorkspaceProfileOverride],
+    ) -> WorkspaceProfile:
+        """Merge matching profile extensions into this profile.
+
+        For each extension targeting this profile (``ext.profile == self.name``):
+
+        - **instructions** (Step 3.2): appended to ``system_prompt``, separated
+          by a blank line.
+        - **allowed_tools** (Step 3.3): appended to ``allowed_tools``. Duplicates
+          are NOT added again.
+
+        Args:
+            extensions: List of profile extensions from
+                ``workspace/profiles/extensions/*.yaml``.
+
+        Returns:
+            A new ``WorkspaceProfile`` with merged data (original is unchanged).
+        """
+        merged = WorkspaceProfile(
+            name=self.name,
+            description=self.description,
+            allowed_tools=list(self.allowed_tools),
+            system_prompt=self.system_prompt,
+            mcp_servers=list(self.mcp_servers),
+        )
+
+        seen_tools = set(self.allowed_tools)
+        extra_prompts: list[str] = []
+
+        for ext in extensions:
+            if ext.profile != self.name:
+                continue
+
+            if ext.instructions:
+                extra_prompts.append(ext.instructions)
+
+            for tool in ext.allowed_tools:
+                if tool not in seen_tools:
+                    merged.allowed_tools.append(tool)
+                    seen_tools.add(tool)
+
+            log.debug(
+                "Applied extension '%s' to profile '%s' (%d tools added)",
+                ext.name,
+                self.name,
+                len(ext.allowed_tools),
+            )
+
+        if extra_prompts:
+            merged.system_prompt = (
+                self.system_prompt + "\n\n" + "\n\n".join(extra_prompts)
+            )
+
+        return merged
+
 
 @dataclass
 class SkillTool:
@@ -94,6 +155,7 @@ class WorkspaceSkill:
     name: str
     description: str = ""
     version: str = "1.0.0"
+    timeout: int | None = None  # FR-011: configurable execution timeout (default 30)
     tools: list[SkillTool] = field(default_factory=list)
 
     @staticmethod
@@ -120,6 +182,7 @@ class WorkspaceSkill:
             name=data.get("name", path.stem),
             description=data.get("description", ""),
             version=data.get("version", "1.0.0"),
+            timeout=data.get("timeout"),
             tools=tools,
         )
 

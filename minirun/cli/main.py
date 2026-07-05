@@ -3,60 +3,99 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
-from pathlib import Path
+import re
 import readline  # noqa: F401 — line-editing for input()
 import sys
 import uuid
+from pathlib import Path
 from typing import Any
 
 from minirun.boot import init as boot_init
 from minirun.cli.knowledge_commands import dispatch_knowledge_command
+from minirun.cli.styles import (
+    blue,
+    build_prompt,
+    cyan,
+    dim,
+    error,
+    gray,
+    green,
+    header,
+    magenta,
+    pad,
+    red,
+    yellow,
+)
 from minirun.log import get_logger
 from minirun.memory import (
-    ExtractionResult,
-    KnowledgeExtractor,
-    KnowledgeStore,
     PROVIDER_CALLED,
     RESPONSE_GENERATED,
     SESSION_STARTED,
     SUMMARY_GENERATED,
+    ExtractionResult,
+    KnowledgeExtractor,
+    KnowledgeStore,
     build_knowledge,
 )
 from minirun.ports.provider import Message, Response
 from minirun.runtime.context import build_memory_context
 from minirun.runtime.events import emit_event, get_journal
-from minirun.runtime.state import RuntimeState, RuntimeStateMachine
 from minirun.runtime.harness import (
     bootstrap,
+    bootstrap_workspace_async,
     finalize_session,
     get_provider,
 )
+from minirun.runtime.state import RuntimeState, RuntimeStateMachine
 from minirun.tools import registry
 from minirun.workspace import Workspace
+from minirun.workspace.discovery import WorkspaceDiscovery
+from minirun.workspace.models import WorkspaceProfile
 
 log = get_logger("cli")
 
 HELP_TEXT = """
-Chat commands:
-  /exit, /quit              Exit the chat
-  /session                  Show current session ID
-  /help                     Show this help message
-  /clear                    Clear the terminal screen
-  !<command>                Execute a shell command (e.g. !ls -lha)
-  /tools                    List registered tools
-  /profiles                 List available profiles
-  /commands                 List custom workspace commands
-  /skills                   List installed skills
-  /events, /journal [N]      Show last N journal events (default: 20)
-  /events, /journal --session <id>  Show events for a specific session
-  /events, /journal --type <type>   Show events of a specific type
-  /knowledge list           List all stored facts
-  /knowledge search <query> Search facts by keyword
-  /knowledge delete <id>    Delete a specific fact by ID
-  /knowledge prune          Remove all expired facts
-
-Press Ctrl+C to exit at any time.
+Commands:
+  /exit,/quit          Exit
+  /session             Show session ID
+  /help                This help
+  /clear               Clear screen
+  @<profile>           Use profile (e.g. @sre hi)
+  !<cmd>               Shell command (e.g. !ls)
+  /tools               Registered tools
+  /profiles            Profiles
+  /commands            Custom commands
+  /skills              Skills
+  /sessions            Journal sessions
+  /events,/journal [N] Last N events (default: 20)
+  /events --session <id>  Events by session
+  /events --type <t>      Events by type
+  /metrics             Tool metrics
+  /replay <id>         Replay session
+  /knowledge list      Facts
+  /knowledge search <q> Search facts
+  /knowledge delete <id> Delete fact
+  /knowledge prune     Remove expired
 """
+
+
+def _color_event_type(etype: str) -> str:
+    """Color an event type string by category."""
+    if etype in ("session_started", "profile_loaded"):
+        return cyan(etype)
+    if etype in ("provider_called", "response_generated"):
+        return blue(etype)
+    if etype in ("tool_executed",):
+        return green(etype)
+    if etype in ("tool_denied",):
+        return red(etype)
+    if etype in ("tool_confirmation_required",):
+        return yellow(etype)
+    if etype in ("state_transition",):
+        return magenta(etype)
+    if etype in ("summary_generated",):
+        return etype
+    return dim(etype)
 
 
 def _list_tools() -> None:
@@ -65,13 +104,74 @@ def _list_tools() -> None:
     if not tools:
         print("No tools registered.")
         return
-    print(f"Registered tools ({len(tools)}):")
+    print(header(f"Registered tools ({len(tools)}):"))
     for t in tools:
         desc = t.get("description", "")
         source = t.get("_source", "builtin")
-        print(f"  {t['name']:30s}  {desc}")
+        print(f"  {pad(cyan(t['name']), 30)}  {dim(desc)}")
         if source and source != "builtin":
-            print(f"  {'':30s}  [{source}]")
+            src_label = gray(f"[{source}]")
+            print(f"  {pad('', 30)}  {src_label}")
+
+
+def _parse_profile_reference(text: str) -> tuple[str | None, str]:
+    """Extract an ``@profile_name`` reference from the beginning of a message.
+
+    Returns a tuple of ``(profile_name, clean_message)``.
+    If no ``@profile`` is found, returns ``(None, text)``.
+
+    Examples:
+        ``_parse_profile_reference("@sre hi")`` → ``("sre", "hi")``
+        ``_parse_profile_reference("hello")`` → ``(None, "hello")``
+        ``_parse_profile_reference("@sre")`` → ``("sre", "")``
+    """
+    text = text.strip()
+    match = re.match(r"^@(\w[\w.-]*)(?:\s+(.*))?$", text, re.DOTALL)
+    if match:
+        profile_name = match.group(1)
+        clean_message = (match.group(2) or "").strip()
+        return profile_name, clean_message
+    return None, text
+
+
+def _activate_profile(
+    profile: WorkspaceProfile,
+    messages: list[Message],
+) -> None:
+    """Inject a profile's ``system_prompt`` into the messages list.
+
+    The profile's system prompt is inserted as a ``system`` message before
+    any existing messages. If a ``system`` message already exists, the
+    profile's prompt is prepended to it (separated by a blank line).
+
+    Args:
+        profile: The loaded workspace profile.
+        messages: The message list to modify in-place.
+    """
+    if not profile.system_prompt:
+        log.debug(
+            "Profile '%s' has no system_prompt — skipping injection",
+            profile.name,
+        )
+        return
+
+    # Check if a system message already exists
+    for i, msg in enumerate(messages):
+        if msg.role == "system":
+            # Prepend profile prompt to existing system message
+            messages[i] = Message(
+                role="system",
+                content=f"{profile.system_prompt}\n\n{msg.content}",
+            )
+            log.debug(
+                "Prepended profile '%s' system_prompt to existing system message",
+                profile.name,
+            )
+            return
+
+    # No existing system message — inject at position 0
+    messages.insert(0, Message(role="system", content=profile.system_prompt))
+    log.debug("Injected profile '%s' system_prompt as system message", profile.name)
 
 
 def _list_profiles() -> None:
@@ -81,10 +181,13 @@ def _list_profiles() -> None:
     if not profiles:
         print("No profiles found in workspace/profiles/.")
         return
-    print(f"Available profiles ({len(profiles)}):")
+    print(header(f"Available profiles ({len(profiles)}):"))
     for p in profiles:
         desc = p.get("description", "")
-        print(f"  @{p['name']:30s}  {desc}  ({p['format']}) {p['path']}")
+        nm = magenta(f"@{p['name']}")
+        fmt = gray(f"({p['format']})")
+        ppath = gray(p['path'])
+        print(f"  {pad(nm, 30)}  {dim(desc)}  {fmt} {ppath}")
 
 
 def _list_skills() -> None:
@@ -94,10 +197,12 @@ def _list_skills() -> None:
     if not skills:
         print("No skills found in workspace/skills/.")
         return
-    print(f"Installed skills ({len(skills)}):")
+    print(header(f"Installed skills ({len(skills)}):"))
     for s in skills:
         desc = s.get("description", "")
-        print(f"  {s['name']:30s}  {desc}  ({s['format']}) {s['path']}")
+        fmt = gray(f"({s['format']})")
+        ppath = gray(s['path'])
+        print(f"  {pad(cyan(s['name']), 30)}  {dim(desc)}  {fmt} {ppath}")
 
 
 def _list_commands() -> None:
@@ -107,10 +212,12 @@ def _list_commands() -> None:
     if not commands:
         print("No commands found in workspace/commands/.")
         return
-    print(f"Custom commands ({len(commands)}):")
+    print(header(f"Custom commands ({len(commands)}):"))
     for c in commands:
         desc = c.get("description", "")
-        print(f"  {c['name']:30s}  {desc}  ({c['format']}) {c['path']}")
+        fmt = gray(f"({c['format']})")
+        ppath = gray(c['path'])
+        print(f"  {pad(yellow(c['name']), 30)}  {dim(desc)}  {fmt} {ppath}")
 
 
 def _list_events(raw_cmd: str) -> None:
@@ -129,7 +236,7 @@ def _list_events(raw_cmd: str) -> None:
         return
 
     # Parse arguments after "/events"
-    parts = raw_cmd[len("/events"):].strip().split()
+    parts = raw_cmd[len("/events") :].strip().split()
     limit = 20
     session_filter: str | None = None
     type_filter: str | None = None
@@ -164,41 +271,154 @@ def _list_events(raw_cmd: str) -> None:
         print("No events found.")
         return
 
-    # Build filter description for header
-    desc_parts: list[str] = []
+    filter_parts: list[str] = []
     if session_filter:
-        desc_parts.append(f"session={session_filter[:8]}")
+        filter_parts.append(f"session={session_filter[:8]}")
     if type_filter:
-        desc_parts.append(f"type={type_filter}")
-    filter_desc = f" ({', '.join(desc_parts)})" if desc_parts else ""
+        filter_parts.append(f"type={type_filter}")
+    filter_desc = f" ({', '.join(filter_parts)})" if filter_parts else ""
 
-    print(f"\nRecent journal events{filter_desc} ({len(events)}):")
-    print("─" * 100)
+    print(f"\n{cyan('Events')}{filter_desc} ({len(events)}):")
+    print(dim("─" * 100))
     for ev in events:
-        ts = ev.get("timestamp", "?")
-        # Trim timestamp to seconds readability
-        if len(ts) > 19:
-            ts = ts[:19]
+        ts = (ev.get("timestamp", "?") or "")[:19]
         etype = ev.get("event_type", "?")
-        sid = ev.get("session_id", "?")[:8]
-        eid = ev.get("id", "?")[:8]
+        sid = (ev.get("session_id", "?") or "?")[:8]
+        eid = (ev.get("id", "?") or "?")[:8]
         payload = ev.get("payload", {}) or {}
-        # Build a one-line summary from the payload
-        payload_preview = ""
+        preview = ""
         if isinstance(payload, dict) and payload:
-            # Pick the most interesting keys
-            preview_keys = ["tool", "provider", "profile", "content_length",
-                           "num_messages", "decision", "reason", "prompt"]
-            parts_preview: list[str] = []
-            for k in preview_keys:
+            keys = [
+                "tool",
+                "provider",
+                "profile",
+                "content_length",
+                "num_messages",
+                "decision",
+                "reason",
+                "prompt",
+            ]
+            parts: list[str] = []
+            for k in keys:
                 v = payload.get(k)
                 if v is not None:
-                    v_str = str(v)[:40]
-                    parts_preview.append(f"{k}={v_str}")
-            if parts_preview:
-                payload_preview = " | " + ", ".join(parts_preview)
-        print(f"  {ts}  {etype:20s}  {sid}  [{eid}]{payload_preview}")
+                    parts.append(f"{k}={str(v)[:40]}")
+            if parts:
+                preview = " | " + ", ".join(parts)
+        etype_colored = _color_event_type(etype)
+        print(f"  {gray(ts)}  {pad(etype_colored, 20)}  {gray(sid)}  [{dim(eid)}]{preview}")  # noqa: E501
     print()
+
+
+def _list_metrics() -> None:
+    """Print aggregated tool execution metrics from the journal."""
+    from minirun.metrics import MetricsCollector, format_metrics_summary
+
+    try:
+        journal = get_journal()
+    except RuntimeError as exc:
+        print(f"Journal not available: {exc}")
+        return
+
+    collector = MetricsCollector(journal)
+    summary = collector.summary()
+
+    if summary.total_events == 0:
+        print("No journal events found. Run a session first to generate metrics.")
+        return
+
+    print()
+    print(format_metrics_summary(summary))
+    print()
+
+
+def _list_sessions() -> bool:
+    """List all sessions in the journal with event counts and timestamps."""
+    try:
+        journal = get_journal()
+    except RuntimeError as exc:
+        print(f"Journal not available: {exc}")
+        return True
+
+    try:
+        sessions = journal.get_sessions()
+    except Exception as exc:
+        print(f"Error listing sessions: {exc}")
+        return True
+
+    if not sessions:
+        print("No sessions found in the journal.")
+        return True
+
+    total = len(sessions)
+    total_events = sum(s["event_count"] for s in sessions)
+
+    print()
+    print(cyan(f"Sessions ({total}, {total_events} events):"))
+    print(dim("─" * 80))
+    h_id = pad(header("ID"), 12)
+    h_evt = pad(header("Evt"), 4)
+    h_first = pad(header("First"), 22)
+    h_last = pad(header("Last"), 22)
+    print(f"  {h_id}  {h_evt}  {h_first}  {h_last}")
+    print(dim("─" * 46))
+
+    for s in sessions:
+        sid = (s.get("session_id") or "?")[:8]
+        count = s.get("event_count", 0)
+        first = (s.get("first_event") or "")[:19]
+        last = (s.get("last_event") or "")[:19]
+        print(f"  {pad(gray(sid), 10)}  {count:4d}  {first:22s}  {last:22s}")
+
+    print()
+    print(dim("Use /replay <id> to see the full timeline."))
+    print()
+    return True
+
+
+def _replay_session(raw_cmd: str) -> bool:
+    """Reconstruct and display a session timeline from journal events.
+
+    Usage: /replay <session-id>
+
+    Args:
+        raw_cmd: The full chat command string.
+
+    Returns:
+        True if the command was handled, False if not.
+    """
+    parts = raw_cmd.strip().split(maxsplit=1)
+    if len(parts) < 2:
+        print("Usage: /replay <session-id>")
+        print("  Reconstruct a session from journal events (no provider call).")
+        print("  Tip: use /events --session <id> to list events for a session")
+        print("       before replaying it.")
+        return True
+
+    session_id = parts[1].strip()
+
+    try:
+        journal = get_journal()
+    except RuntimeError as exc:
+        print(f"Journal not available: {exc}")
+        print("Run a session first to generate journal events.")
+        return True
+
+    from minirun.metrics.replay import SessionReplay
+
+    replay = SessionReplay(journal)
+    try:
+        session = replay.reconstruct(session_id)
+    except ValueError as exc:
+        print(f"{exc}")
+        return True
+    except Exception as exc:
+        print(f"Error replaying session: {exc}")
+        return True
+
+    print()
+    print(replay.format_timeline(session, show_details=True))
+    return True
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -323,6 +543,42 @@ async def run(
     # Bootstrap runtime with policy engine
     bootstrap(allow_all=allow_all)
 
+    if not message:
+        print("No message provided. Use: minirun <prompt>", file=sys.stderr)
+        sys.exit(1)
+
+    # Parse @profile_name from the message
+    profile_name, clean_message = _parse_profile_reference(message)
+    log.debug(
+        "Parsed profile reference: profile=%s, message=%s",
+        profile_name,
+        clean_message[:80],
+    )
+
+    # Activate profile MCP servers if specified
+    active_profile: WorkspaceProfile | None = None
+    if profile_name:
+        await bootstrap_workspace_async(profile_name=profile_name, allow_all=allow_all)
+        # Load profile to inject its system prompt
+        ws = Workspace()
+        discovery = WorkspaceDiscovery(ws.root)
+        active_profile = discovery.get_profile(profile_name)
+        if active_profile:
+            log.info(
+                "Activated profile '%s' with %d MCP server(s) and %d allowed tool(s)",
+                active_profile.name,
+                len(active_profile.mcp_servers),
+                len(active_profile.allowed_tools),
+            )
+        else:
+            log.warning(
+                "Profile '%s' not found after activation — continuing without profile",
+                profile_name,
+            )
+
+    # Use cleaned message (without @profile prefix)
+    effective_message = clean_message if clean_message else message
+
     provider = get_provider(
         name=provider_name,
         model=model,
@@ -330,17 +586,17 @@ async def run(
         max_tokens=max_tokens,
     )
 
-    if not message:
-        print("No message provided. Use: minirun <prompt>", file=sys.stderr)
-        sys.exit(1)
-
     # Generate session ID for persistence
     session_id = str(uuid.uuid4())
     log.info("Starting session %s", session_id)
-    emit_event(session_id, SESSION_STARTED, {
-        "provider": provider_name or "default",
-        "model": model or "default",
-    })
+    emit_event(
+        session_id,
+        SESSION_STARTED,
+        {
+            "provider": provider_name or "default",
+            "model": model or "default",
+        },
+    )
 
     # ── Explicit state machine ───────────────────────────────────────
     sm = RuntimeStateMachine(session_id)
@@ -354,28 +610,41 @@ async def run(
 
     # Build memory context from past session summaries and knowledge
     memory_ctx = build_memory_context(
-        prompt=message,
+        prompt=effective_message,
         knowledge_store=knowledge_store,
     )
     messages: list[Message] = []
     if memory_ctx:
         log.info("Found relevant past context for prompt")
         messages.append(Message(role="system", content=memory_ctx))
-    messages.append(Message(role="user", content=message))
+
+    # Inject profile system prompt BEFORE the user message
+    if active_profile:
+        _activate_profile(active_profile, messages)
+
+    messages.append(Message(role="user", content=effective_message))
 
     # CALL_PROVIDER
     sm.transition(RuntimeState.CALL_PROVIDER)
 
-    emit_event(session_id, PROVIDER_CALLED, {
-        "num_messages": len(messages),
-        "provider": provider_name or "default",
-        "model": model or "default",
-    })
+    emit_event(
+        session_id,
+        PROVIDER_CALLED,
+        {
+            "num_messages": len(messages),
+            "provider": provider_name or "default",
+            "model": model or "default",
+        },
+    )
     response = await provider.complete(messages)
-    emit_event(session_id, RESPONSE_GENERATED, {
-        "content_length": len(response.content or ""),
-        "finish_reason": getattr(response, "finish_reason", None),
-    })
+    emit_event(
+        session_id,
+        RESPONSE_GENERATED,
+        {
+            "content_length": len(response.content or ""),
+            "finish_reason": getattr(response, "finish_reason", None),
+        },
+    )
     sys.stdout.write(response.content)
     if response.content and not response.content.endswith("\n"):
         sys.stdout.write("\n")
@@ -387,7 +656,7 @@ async def run(
     # Persist session and generate summary
     await finalize_session(
         session_id=session_id,
-        prompt=message,
+        prompt=effective_message,
         messages=messages,
         response=response,
         provider=provider,
@@ -446,11 +715,15 @@ async def run_chat(
         log.info("Resumed session %s (%d messages)", session_id, len(messages))
 
     # Emit session_started event
-    emit_event(session_id, SESSION_STARTED, {
-        "provider": provider_name or "default",
-        "model": model or "default",
-        "resumed": False,
-    })
+    emit_event(
+        session_id,
+        SESSION_STARTED,
+        {
+            "provider": provider_name or "default",
+            "model": model or "default",
+            "resumed": False,
+        },
+    )
 
     # ── Explicit state machine ───────────────────────────────────────
     sm = RuntimeStateMachine(session_id)
@@ -475,24 +748,25 @@ async def run_chat(
         messages.insert(0, Message(role="system", content=memory_ctx))
         log.debug("Injected memory context from past summaries")
 
-    # ── Persistent readline history ────────────────────────────────
-    _HISTORY_FILE = Path.home() / ".minirun_history"
-    _HISTORY_MAX = 1000
+    # Track active profile for context-aware prompt
+    active_chat_profile: str | None = None
+    _history_file = Path.home() / ".minirun_history"
+    _history_max = 1000
     try:
-        readline.read_history_file(str(_HISTORY_FILE))
-        readline.set_history_length(_HISTORY_MAX)
+        readline.read_history_file(str(_history_file))
+        readline.set_history_length(_history_max)
     except FileNotFoundError:
-        pass  # First time — no history yet
-
-    print(f"     minirun chat \n \nsession {session_id[:8]}...")
-    print("Type /help for commands, /exit to quit.")
+        pass
+    print(cyan("━━━ MiniRUN Chat ━━━"))
+    print(gray(f"session {session_id[:8]}  /help for cmds"))
     if resumed:
-        print(f"(Resumed {len(messages)} previous messages)")
+        print(gray(f"resumed {len(messages)} msgs"))
 
     try:
         while True:
             try:
-                user_input = input("\nyou: ").strip()
+                user_prompt = build_prompt(active_chat_profile, session_id)
+                user_input = input(f"\n{user_prompt}").strip()
             except EOFError:
                 print()
                 break
@@ -526,6 +800,9 @@ async def run_chat(
                 elif cmd == "/skills":
                     _list_skills()
                     continue
+                elif cmd == "/sessions":
+                    _list_sessions()
+                    continue
                 elif cmd == "/clear":
                     os.system("clear" if sys.platform != "win32" else "cls")
                     continue
@@ -534,8 +811,32 @@ async def run_chat(
                     normalized = cmd.replace("/journal", "/events", 1)
                     _list_events(normalized)
                     continue
+                elif cmd in ("/metrics", "/stats"):
+                    _list_metrics()
+                    continue
+                elif cmd.startswith("/replay"):
+                    _replay_session(user_input)
+                    continue
                 else:
-                    print(f"Unknown command: {user_input}. Type /help for commands.")
+                    print(f"Unknown: {user_input}. /help for cmds.")
+                    continue
+
+            # Parse @profile_name from chat input
+            profile_name, clean_input = _parse_profile_reference(user_input)
+            if profile_name:
+                log.info("Chat profile switch: %s", profile_name)
+                await bootstrap_workspace_async(
+                    profile_name=profile_name, allow_all=allow_all
+                )
+                ws_discovery = WorkspaceDiscovery(ws.root)
+                chat_profile = ws_discovery.get_profile(profile_name)
+                if chat_profile:
+                    _activate_profile(chat_profile, messages)
+                    log.info("Injected profile '%s' prompt", profile_name)
+                active_chat_profile = profile_name
+                user_input = clean_input or ""
+                if not user_input:
+                    print(green(f"✓ Activated @{profile_name}"))
                     continue
 
             # Execute shell commands (! prefix)
@@ -559,25 +860,35 @@ async def run_chat(
             # CALL_PROVIDER
             sm.transition(RuntimeState.CALL_PROVIDER)
 
-            emit_event(session_id, PROVIDER_CALLED, {
-                "num_messages": len(messages),
-                "provider": provider_name or "default",
-                "model": model or "default",
-            })
+            emit_event(
+                session_id,
+                PROVIDER_CALLED,
+                {
+                    "num_messages": len(messages),
+                    "provider": provider_name or "default",
+                    "model": model or "default",
+                },
+            )
+            # Print response label before streaming
+            resp_label = active_chat_profile or "minirun"
+            resp_color = magenta if active_chat_profile else cyan
+            sys.stdout.write(f"\n{resp_color(resp_label)}: ")
+            sys.stdout.flush()
+
             try:
-                provider_response = await provider.complete(messages)
+                provider_response = await provider.stream_complete(messages)
             except Exception as exc:
                 log.error("Provider call failed: %s", exc)
-                print(f"\nError: {exc}")
-                messages.pop()  # Remove failed message
+                print(f"\n{error(f'Error: {exc}')}")
+                messages.pop()
                 continue
 
-            # Print and accumulate response
             output = provider_response.content or ""
-            emit_event(session_id, RESPONSE_GENERATED, {
-                "content_length": len(output),
-            })
-            sys.stdout.write(output)
+            emit_event(
+                session_id,
+                RESPONSE_GENERATED,
+                {"content_length": len(output)},
+            )
             if output and not output.endswith("\n"):
                 sys.stdout.write("\n")
 
@@ -588,11 +899,10 @@ async def run_chat(
 
             # Extract knowledge facts from the response
             try:
-                profile_name = ""  # could be derived from the active profile
                 result: ExtractionResult = knowledge_extractor.extract(
                     content=output,
                     source_session_id=session_id,
-                    tags=[profile_name] if profile_name else None,
+                    tags=None,
                 )
                 for fact in result.facts:
                     knowledge_store.upsert(fact)
@@ -641,9 +951,13 @@ async def run_chat(
                 response=summary_response,
                 provider=provider,
             )
-            emit_event(session_id, SUMMARY_GENERATED, {
-                "prompt": first_prompt[:80],
-            })
+            emit_event(
+                session_id,
+                SUMMARY_GENERATED,
+                {
+                    "prompt": first_prompt[:80],
+                },
+            )
         except Exception as exc:
             log.warning("Failed to finalize session: %s", exc)
 
@@ -661,7 +975,7 @@ async def run_chat(
 
     # Save readline history
     try:
-        readline.write_history_file(str(_HISTORY_FILE))
+        readline.write_history_file(str(_history_file))
     except OSError:
         pass
 

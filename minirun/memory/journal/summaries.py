@@ -52,8 +52,7 @@ class SessionIndex:
     def add(self, session_id: str, prompt: str, created_at: str) -> None:
         with sqlite3.connect(self._db_path) as conn:
             conn.execute(
-                "INSERT INTO summaries(session_id, prompt, created_at) "
-                "VALUES(?,?,?)",
+                "INSERT INTO summaries(session_id, prompt, created_at) VALUES(?,?,?)",
                 (session_id, prompt, created_at),
             )
 

@@ -29,6 +29,9 @@
 | **[ADR-004](adr/ADR-004-tools.md)** | Tool Registry + MCP decision |
 | **[ADR-005](adr/ADR-005-memory.md)** | SQLite + Summaries decision |
 | **[ADR-006](adr/ADR-006-security.md)** | Default-Deny Security decision |
+| **[ADR-007](adr/ADR-007-knowledge-store.md)** | Knowledge Store Architecture |
+| **[ADR-008](adr/ADR-008-state-machine.md)** | Explicit Runtime State Machine |
+| **[ADR-009](adr/ADR-009-tool-executor.md)** | Tool Executor Separation |
 
 ---
 

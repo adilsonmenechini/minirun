@@ -106,10 +106,7 @@ class RuntimeStateMachine:
         :func:`minirun.runtime.events.safe_emit`.
         """
         if not is_valid_transition(self._state, new_state):
-            msg = (
-                f"Invalid state transition: "
-                f"{self._state.name} → {new_state.name}"
-            )
+            msg = f"Invalid state transition: {self._state.name} → {new_state.name}"
             log.error(msg)
             raise RuntimeError(msg)
 

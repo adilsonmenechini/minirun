@@ -15,7 +15,12 @@ from typing import Any
 
 from minirun.boot import init as boot_init
 from minirun.log import get_logger
-from minirun.memory import PROFILE_LOADED, TOOL_DENIED, TOOL_REQUESTED
+from minirun.memory import (
+    PROFILE_LOADED,
+    TOOL_CONFIRMATION_REQUIRED,
+    TOOL_DENIED,
+    TOOL_REQUESTED,
+)
 from minirun.ports.provider import BaseProvider, Message, Response
 from minirun.providers import PROVIDERS
 from minirun.runtime.context import _get_default_db_path, _get_default_summary_dir
@@ -43,17 +48,11 @@ def bootstrap(allow_all: bool = False) -> None:
     boot_init()
     ws = Workspace()
     created = ws.init()
-    log.info("Workspace bootstrapped (created=%s)", created)
-
-    # Initialize Policy Engine
+    log.info("ws bootstrapped created=%s", created)
     _policy_engine = PolicyEngine(allow_all=allow_all)
-    log.info("Policy Engine initialized (allow_all=%s)", allow_all)
-
-    # Initialize Event Journal
+    log.info("policy init allow_all=%s", allow_all)
     init_journal()
-
-    # Lazy-init: only run after bootstrap if explicitly requested by caller
-    log.info("Tool registry has %d registered tools", len(registry.list_tools()))
+    log.info("tools=%d", len(registry.list_tools()))
 
 
 async def bootstrap_workspace_async(
@@ -80,10 +79,10 @@ async def bootstrap_workspace_async(
     _workspace_discovery = discovery
 
     log.info(
-        "Workspace discovery: %d profiles, %d skills, %d agents, %d commands",
+        "discovery profiles=%d skills=%d ext=%d cmds=%d",
         len(entities["profiles"]),
         len(entities["skills"]),
-        len(entities["agents"]),
+        len(entities["extensions"]),
         len(entities["commands"]),
     )
 
@@ -93,23 +92,23 @@ async def bootstrap_workspace_async(
 
     # Activate profile MCP if a profile name was given
     if profile_name:
-        from minirun.workspace.mcp_manager import MCPProfileManager
-
         profile = discovery.get_profile(profile_name)
         if profile is None:
-            log.warning(
-                "Profile %r not found among workspace profiles; MCP not activated",
-                profile_name,
-            )
+            log.warning("profile %r not found — no MCP", profile_name)
             return
+
+        # Apply profile extensions (Phase 3)
+        extensions = discovery.discover_extensions()
+        if extensions:
+            profile = profile.apply_extensions(extensions)
+            log.info("applied %d ext(s) to %s", len(extensions), profile_name)
+
+        from minirun.workspace.mcp_manager import MCPProfileManager
+
         mcp = MCPProfileManager(profile)
         try:
             await mcp.connect_all()
-            log.info(
-                "MCPProfileManager activated for profile %s (%d servers configured)",
-                profile.name,
-                len(profile.mcp_servers),
-            )
+            log.info("mcp active %s servers=%d", profile.name, len(profile.mcp_servers))
             safe_emit(
                 session_id="system",
                 event_type=PROFILE_LOADED,
@@ -119,11 +118,7 @@ async def bootstrap_workspace_async(
                 },
             )
         except Exception as exc:
-            log.warning(
-                "MCPProfileManager failed to activate profile %s: %s",
-                profile.name,
-                exc,
-            )
+            log.warning("mcp activate fail %s: %s", profile.name, exc)
 
 
 def get_policy_engine() -> PolicyEngine:
@@ -142,7 +137,8 @@ def check_tool_permission(
 ) -> PolicyDecision:
     """Check if a tool invocation is permitted by the Policy Engine.
 
-    Emits ``TOOL_REQUESTED`` and optionally ``TOOL_DENIED`` events.
+    Emits ``TOOL_REQUESTED`` and optionally ``TOOL_DENIED`` or
+    ``TOOL_CONFIRMATION_REQUIRED`` events.
 
     Args:
         tool_name: Name of the tool being invoked.
@@ -150,24 +146,39 @@ def check_tool_permission(
         session_id: Optional session ID for event journaling.
 
     Returns:
-        ``PolicyDecision.ALLOW`` or ``.DENY`` / ``.DENY_WITH_REASON``.
+        ``PolicyDecision.ALLOW``, ``.DENY``, ``.DENY_WITH_REASON``, or
+        ``.REQUIRES_CONFIRMATION``.
     """
     engine = get_policy_engine()
     decision = engine.evaluate(tool_name, params)
 
     sid = session_id or "system"
     safe_emit(
-        sid, TOOL_REQUESTED, {
+        sid,
+        TOOL_REQUESTED,
+        {
             "tool": tool_name,
             "params": params,
             "decision": decision.value,
         },
     )
-    if decision != PolicyDecision.ALLOW:
+    if decision.needs_confirmation:
         safe_emit(
-            sid, TOOL_DENIED, {
+            sid,
+            TOOL_CONFIRMATION_REQUIRED,
+            {
                 "tool": tool_name,
-                "reason": decision.value,
+                "reason": decision.reason,
+                "params": params,
+            },
+        )
+    elif not decision.allowed:
+        safe_emit(
+            sid,
+            TOOL_DENIED,
+            {
+                "tool": tool_name,
+                "reason": decision.reason or "denied",
             },
         )
     return decision
@@ -257,7 +268,7 @@ def get_provider(
         kwargs["max_tokens"] = max_tokens
 
     log.info(
-        "Initialising provider: %s (model=%s, temperature=%s, max_tokens=%s)",
+        "init provider=%s model=%s temp=%s tokens=%s",
         provider_name,
         model or "default",
         temperature if temperature is not None else "default",

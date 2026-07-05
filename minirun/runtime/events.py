@@ -30,7 +30,7 @@ def init_journal() -> None:
     if _journal is not None:
         return
     _journal = EventJournal()
-    log.info("Event Journal initialized")
+    log.info("journal init")
 
 
 def get_journal() -> EventJournal:
@@ -59,7 +59,7 @@ def safe_emit(
                 payload=payload,
             )
         except Exception:
-            log.warning("Failed to emit event %s", event_type, exc_info=True)
+            log.warning("emit fail %s", event_type, exc_info=True)
 
 
 def emit_event(
@@ -81,15 +81,29 @@ def emit_tool_executed(
     tool_name: str,
     result: Any = None,
     session_id: str | None = None,
+    latency_ms: float | None = None,
 ) -> None:
     """Emit a TOOL_EXECUTED event after successful tool execution.
 
     The result is truncated to 200 characters to keep the payload small.
+
+    Args:
+        tool_name: Name of the executed tool.
+        result: The tool execution result (truncated to 200 chars).
+        session_id: Optional session ID for event journaling.
+        latency_ms: Optional execution latency in milliseconds.
     """
     from minirun.memory import TOOL_EXECUTED
+
+    payload: dict[str, Any] = {
+        "tool": tool_name,
+        "result": str(result)[:200] if result else None,
+    }
+    if latency_ms is not None:
+        payload["latency_ms"] = latency_ms
 
     safe_emit(
         session_id or "system",
         TOOL_EXECUTED,
-        payload={"tool": tool_name, "result": str(result)[:200] if result else None},
+        payload=payload,
     )

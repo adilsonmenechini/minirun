@@ -73,23 +73,18 @@ def build_memory_context(
 
     if results:
         has_context = True
-        lines.append("The following are relevant past session summaries for context:")
-        lines.append("")
+        lines.append("### Past sessions:")
         for r in results:
-            created = r.get("created_at", "?")
-            sid = r.get("session_id", "?")
+            sid = r.get("session_id", "?")[:8]
             pr = r.get("prompt", "?")
-            lines.append(f"- [{created}] Session {sid}: {pr}")
-        lines.append("")
+            lines.append(f"- {pr} [{sid}]")
 
     # Knowledge facts section
     if knowledge_store is not None:
         try:
             tags = [profile_name] if profile_name else None
             facts = knowledge_store.get_relevant(
-                query=prompt,
-                tags=tags,
-                limit=max_knowledge_facts,
+                query=prompt, tags=tags, limit=max_knowledge_facts
             )
         except Exception:
             log.warning("Failed to query knowledge store", exc_info=True)
@@ -98,21 +93,14 @@ def build_memory_context(
         if facts:
             has_context = True
             if results:
-                lines.append("---")
                 lines.append("")
-            lines.append("## Relevant Knowledge")
-            lines.append("")
+            lines.append("## Knowledge")
             for f in facts:
-                tags_str = ", ".join(f.tags[:3])
-                preview = f.content[:80]
-                lines.append(
-                    f"- {preview} (tags: {tags_str}, source: {f.source_session_id[:8]})"
-                )
-            lines.append("")
+                preview = f.content[:60]
+                tag = f.tags[0] if f.tags else "?"
+                lines.append(f"- {preview} [{tag}]")
 
     if not has_context:
         return None
-
-    lines.append("Use this context to inform your response if relevant.")
 
     return "\n".join(lines)
