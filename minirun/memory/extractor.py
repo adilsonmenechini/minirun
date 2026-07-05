@@ -86,7 +86,7 @@ def load_knowledge_patterns(
 
     # Apply custom patterns (overrides built-ins with same name)
     for name, regex_str in raw_patterns.items():
-        if not isinstance(name, str) or not isinstance(regex_str, str):
+        if not isinstance(regex_str, str):
             continue
         try:
             compiled = re.compile(regex_str, re.IGNORECASE)

@@ -19,13 +19,13 @@ log = get_logger("runtime.context")
 # ── Helpers ─────────────────────────────────────────────────────────────
 
 
-def _get_default_db_path() -> Path:
+def get_default_db_path() -> Path:
     """Return the default SQLite path for the memory index."""
     ws = Workspace()
     return ws.root / "memory" / "sessions" / "index.sqlite"
 
 
-def _get_default_summary_dir() -> Path:
+def get_default_summary_dir() -> Path:
     """Return the default directory for session summary files."""
     ws = Workspace()
     return ws.root / "memory" / "sessions" / "summaries"
@@ -75,8 +75,8 @@ def build_memory_context(
         has_context = True
         lines.append("### Past sessions:")
         for r in results:
-            sid = r.get("session_id", "?")[:8]
-            pr = r.get("prompt", "?")
+            sid: str = (r.get("session_id", "?") or "?")[:8]
+            pr: str = r.get("prompt", "?") or "?"
             lines.append(f"- {pr} [{sid}]")
 
     # Knowledge facts section
@@ -96,8 +96,8 @@ def build_memory_context(
                 lines.append("")
             lines.append("## Knowledge")
             for f in facts:
-                preview = f.content[:60]
-                tag = f.tags[0] if f.tags else "?"
+                preview: str = f.content[:60]
+                tag: str = f.tags[0] if f.tags else "?"
                 lines.append(f"- {preview} [{tag}]")
 
     if not has_context:

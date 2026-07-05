@@ -21,17 +21,15 @@
 
 | Document | Description |
 |----------|-------------|
-| **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Components, contracts, and execution flow |
-| **[PRD.md](docs/PRD.md)** | Product requirements, personas, and roadmap |
-| **[ADR-001](adr/ADR-001-runtime.md)** | Single Runtime decision |
-| **[ADR-002](adr/ADR-002-provider.md)** | Provider Abstraction decision |
-| **[ADR-003](adr/ADR-003-profiles.md)** | Profiles instead of Agents decision |
-| **[ADR-004](adr/ADR-004-tools.md)** | Tool Registry + MCP decision |
-| **[ADR-005](adr/ADR-005-memory.md)** | SQLite + Summaries decision |
-| **[ADR-006](adr/ADR-006-security.md)** | Default-Deny Security decision |
-| **[ADR-007](adr/ADR-007-knowledge-store.md)** | Knowledge Store Architecture |
-| **[ADR-008](adr/ADR-008-state-machine.md)** | Explicit Runtime State Machine |
-| **[ADR-009](adr/ADR-009-tool-executor.md)** | Tool Executor Separation |
+| **[ADR-001](docs/adr/ADR-001-runtime.md)** | Single Runtime decision |
+| **[ADR-002](docs/adr/ADR-002-provider.md)** | Provider Abstraction decision |
+| **[ADR-003](docs/adr/ADR-003-profiles.md)** | Profiles instead of Agents decision |
+| **[ADR-004](docs/adr/ADR-004-tools.md)** | Tool Registry + MCP decision |
+| **[ADR-005](docs/adr/ADR-005-memory.md)** | SQLite + Summaries decision |
+| **[ADR-006](docs/adr/ADR-006-security.md)** | Default-Deny Security decision |
+| **[ADR-007](docs/adr/ADR-007-knowledge-store.md)** | Knowledge Store Architecture |
+| **[ADR-008](docs/adr/ADR-008-state-machine.md)** | Explicit Runtime State Machine |
+| **[ADR-009](docs/adr/ADR-009-tool-executor.md)** | Tool Executor Separation |
 
 ---
 

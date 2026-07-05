@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 import re
 import readline  # noqa: F401 — line-editing for input()
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -804,7 +804,9 @@ async def run_chat(
                     _list_sessions()
                     continue
                 elif cmd == "/clear":
-                    os.system("clear" if sys.platform != "win32" else "cls")
+                    subprocess.call(
+                        "clear" if sys.platform != "win32" else "cls", shell=True
+                    )
                     continue
                 elif cmd.startswith("/events") or cmd.startswith("/journal"):
                     # Normalize /journal → /events for _list_events parsing
@@ -847,7 +849,7 @@ async def run_chat(
                     continue
                 print(f"$ {shell_cmd}")
                 try:
-                    rc = os.system(shell_cmd)
+                    rc = subprocess.call(shell_cmd, shell=True)
                     if rc != 0:
                         print(f"[Exit code: {rc}]")
                 except Exception as exc:

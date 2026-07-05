@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from minirun.adapters.openai import OpenAIProvider
 from minirun.ports.provider import AuthenticationError, Message, Response
+from minirun.providers.openai import OpenAIProvider
 
 
 class TestOpenAIProvider:

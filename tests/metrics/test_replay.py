@@ -155,7 +155,7 @@ class TestSessionReplay:
     def test_reconstruct_empty_journal(self, tmp_path: Path) -> None:
         db = tmp_path / "r6.sqlite"
         EventJournal(db_path=db)
-        replay = SessionReplay(EventJournal(db_path=db))
+        SessionReplay(EventJournal(db_path=db))
 
         import pytest
 

@@ -57,10 +57,6 @@ def color(text: str, *codes: str) -> str:
 
 # ── Convenience helpers ─────────────────────────────────────────────────
 
-def bold(text: str) -> str:
-    return color(text, _BOLD)
-
-
 def dim(text: str) -> str:
     return color(text, _DIM)
 
@@ -99,10 +95,6 @@ def success(text: str) -> str:
 
 def error(text: str) -> str:
     return color(text, _FG_RED, _BOLD)
-
-
-def warn(text: str) -> str:
-    return color(text, _FG_YELLOW)
 
 
 def info(text: str) -> str:

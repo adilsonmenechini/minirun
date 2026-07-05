@@ -8,7 +8,8 @@ import uuid as uuid_mod
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any  # noqa: F401 — used by _row_to_fact sqlite3.Row typing
+
+from minirun.memory._db import use_rows
 
 # ── Exceptions ──────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ class KnowledgeFact:
     expires_at: str | None = None
 
     def __post_init__(self) -> None:
-        if not hasattr(self, "tags") or self.tags is None:
+        if not hasattr(self, "tags"):
             self.tags = []
 
     @staticmethod
@@ -90,7 +91,7 @@ class ExtractionResult:
     skipped_count: int = 0
 
     def __post_init__(self) -> None:
-        if not hasattr(self, "facts") or self.facts is None:
+        if not hasattr(self, "facts"):
             self.facts = []
 
 
@@ -224,7 +225,7 @@ class KnowledgeStore:
         Returns the stored (possibly updated) fact.
         """
         with sqlite3.connect(self._db_path) as conn:
-            conn.row_factory = sqlite3.Row
+            use_rows(conn)
             existing = conn.execute(
                 "SELECT * FROM knowledge_facts WHERE content_hash = ?",
                 (fact.content_hash,),
@@ -280,7 +281,7 @@ class KnowledgeStore:
         uses LIKE with JSON-escaped values to match array membership.
         """
         with sqlite3.connect(self._db_path) as conn:
-            conn.row_factory = sqlite3.Row
+            use_rows(conn)
             if tags:
                 tag_conditions = " AND ".join("tags LIKE ?" for _ in tags)
                 tag_params = [f'%"{t}"%' for t in tags]
@@ -305,7 +306,7 @@ class KnowledgeStore:
     def list_all(self, limit: int = 50, offset: int = 0) -> list[KnowledgeFact]:
         """Paginated listing ordered by created_at descending."""
         with sqlite3.connect(self._db_path) as conn:
-            conn.row_factory = sqlite3.Row
+            use_rows(conn)
             rows = conn.execute(
                 "SELECT * FROM knowledge_facts "
                 "ORDER BY created_at DESC LIMIT ? OFFSET ?",

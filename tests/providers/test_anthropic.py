@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from minirun.adapters.anthropic import AnthropicProvider
 from minirun.ports.provider import AuthenticationError, Message, Response
+from minirun.providers.anthropic import AnthropicProvider
 
 
 class TestAnthropicProvider:

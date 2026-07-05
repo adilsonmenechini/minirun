@@ -7,8 +7,6 @@ The actual implementation lives in:
   - minirun.adapters.anthropic → AnthropicProvider
 """
 
-from minirun.adapters.anthropic import AnthropicProvider
-from minirun.adapters.openai import OpenAIProvider
 from minirun.ports.provider import (
     AuthenticationError,
     BaseProvider,
@@ -23,6 +21,8 @@ from minirun.ports.provider import (
     ToolResult,
     Usage,
 )
+from minirun.providers.anthropic import AnthropicProvider
+from minirun.providers.openai import OpenAIProvider
 
 PROVIDERS: dict[str, type[BaseProvider]] = {
     "openai": OpenAIProvider,

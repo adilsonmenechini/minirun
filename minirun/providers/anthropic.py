@@ -5,7 +5,7 @@ from typing import Any
 from minirun.log import get_logger
 from minirun.ports.provider import BaseProvider, Message, Response
 
-log = get_logger("adapters.anthropic")
+log = get_logger("providers.anthropic")
 
 
 class AnthropicProvider(BaseProvider):

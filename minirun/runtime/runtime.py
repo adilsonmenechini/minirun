@@ -308,44 +308,7 @@ class Runtime:
 
     # ── Chat (interactive) ──────────────────────────────────────────────
 
-    async def run_chat(
-        self,
-        request: RuntimeRequest,
-    ) -> RuntimeResponse:
-        """Run a single chat turn with profile activation.
 
-        Similar to :meth:`run` but designed for interactive chat where
-        the caller manages the message list externally.
-
-        Args:
-            request: Typed request.
-
-        Returns:
-            A :class:`RuntimeResponse`.
-        """
-        return await self.run(request)
-
-    # ── Reset ─────────────────────────────────────────────────────────
-
-    async def reset(self) -> None:
-        """Reset the runtime state.
-
-        Disconnects any active MCP servers and clears the provider and
-        profile state.  The next call to :meth:`run` will re-bootstrap
-        and reconnect.
-        """
-        from minirun.workspace.mcp_manager import MCPProfileManager
-
-        if self._active_profile:
-            try:
-                mcp = MCPProfileManager(self._active_profile)
-                await mcp.disconnect_all()
-            except Exception as exc:
-                log.warning("Failed to disconnect MCP: %s", exc)
-        self._provider = None
-        self._active_profile = None
-        self._bootstrapped = False
-        log.info("Runtime reset — provider and profile cleared")
 
 
 # ── Internal helpers ──────────────────────────────────────────────────

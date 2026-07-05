@@ -117,7 +117,7 @@ class TestKnowledgeFact:
 class TestKnowledgeStore:
     def test_init_creates_schema(self, tmp_path: Path) -> None:
         db = tmp_path / "knowledge.sqlite"
-        store = KnowledgeStore(db_path=db)
+        KnowledgeStore(db_path=db)
         assert db.exists()
         with sqlite3.connect(db) as conn:
             rows = conn.execute(

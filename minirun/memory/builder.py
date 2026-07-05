@@ -58,9 +58,9 @@ def build_knowledge(
     for msg in messages:
         # Normalise message access — supports both dicts and objects
         if isinstance(msg, dict):
-            content = msg.get("content", "")
+            content: str | None = msg.get("content", "")
         else:
-            content = getattr(msg, "content", "")
+            content = getattr(msg, "content", None)
 
         if not content or not content.strip():
             continue

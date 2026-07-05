@@ -370,7 +370,10 @@ class TestActivateProfile:
 
 
 class TestCliSkillAndCommandListing:
-    """Tests for _list_skills() and _list_commands() — used in chat via /skills and /commands."""
+    """Tests for _list_skills() and _list_commands().
+
+    Used in chat via /skills and /commands.
+    """
 
     def test_list_skills_empty(self, capsys: pytest.CaptureFixture[str]) -> None:
         """When no skills, prints 'No skills found'."""

@@ -23,7 +23,7 @@ from minirun.memory import (
 )
 from minirun.ports.provider import BaseProvider, Message, Response
 from minirun.providers import PROVIDERS
-from minirun.runtime.context import _get_default_db_path, _get_default_summary_dir
+from minirun.runtime.context import get_default_db_path, get_default_summary_dir
 from minirun.runtime.events import init_journal, safe_emit
 from minirun.security import PolicyDecision, PolicyEngine
 from minirun.tools import registry
@@ -210,8 +210,8 @@ async def finalize_session(
     """
     from minirun.memory.journal import summarize_session
 
-    summary_dir = summary_dir or _get_default_summary_dir()
-    db_path = db_path or _get_default_db_path()
+    summary_dir = summary_dir or get_default_summary_dir()
+    db_path = db_path or get_default_db_path()
 
     # Build message dicts for summarize_session
     msg_dicts: list[dict[str, Any]] = []

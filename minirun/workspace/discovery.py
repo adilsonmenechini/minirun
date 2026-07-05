@@ -22,11 +22,6 @@ from minirun.workspace.models import (
 
 log = get_logger("workspace.discovery")
 
-# ── FR-011: maximum default timeout for skill handlers ──────────────────
-
-SKILL_EXECUTION_TIMEOUT_DEFAULT = 30  # seconds
-
-
 class WorkspaceDiscovery:
     def __init__(self, workspace_root: Path) -> None:
         self.root = workspace_root

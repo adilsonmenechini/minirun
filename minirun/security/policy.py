@@ -256,11 +256,6 @@ class PolicyEngine:
 
         return PolicyDecision.ALLOW
 
-    def reload(self) -> None:
-        """Reload security policy from disk."""
-        log.info("Reloading security policy from %s", self._config_path)
-        self._load()
-
     def _log_event(
         self,
         tool_name: str,

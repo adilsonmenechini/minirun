@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from minirun.memory._db import use_rows
+
 
 @dataclass
 class Summary:
@@ -58,7 +60,7 @@ class SessionIndex:
 
     def search(self, query: str, limit: int = 3) -> list[dict[str, Any]]:
         with sqlite3.connect(self._db_path) as conn:
-            conn.row_factory = sqlite3.Row
+            use_rows(conn)
             rows = conn.execute(
                 "SELECT session_id, prompt, created_at "
                 "FROM summaries WHERE prompt LIKE ? LIMIT ?",

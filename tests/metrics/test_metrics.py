@@ -84,7 +84,7 @@ class TestMetricsCollector:
         collector.db_path = db
         stats = collector.tool_stats()
 
-        # Should be sorted by count desc: http.get (3) > filesystem.read (2) > filesystem.grep (1)
+        # Sorted by count desc: http.get (3) > filesystem.read (2) > filesystem.grep (1)
         assert len(stats) == 3
         assert stats[0].tool == "http.get"
         assert stats[0].count == 3

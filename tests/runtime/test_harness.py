@@ -2,8 +2,8 @@ from unittest.mock import patch
 
 import pytest
 
-from minirun.adapters.anthropic import AnthropicProvider
-from minirun.adapters.openai import OpenAIProvider
+from minirun.providers.anthropic import AnthropicProvider
+from minirun.providers.openai import OpenAIProvider
 from minirun.runtime.harness import get_provider
 
 

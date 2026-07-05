@@ -1,5 +1,3 @@
-"""Workspace data models for profiles, skills, agents, and commands."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -236,7 +234,6 @@ class WorkspaceCommand:
     type: str
     path: str
     description: str = ""
-    args_schema: dict[str, object] | None = None
 
     @staticmethod
     def from_file(path: Path) -> WorkspaceCommand:

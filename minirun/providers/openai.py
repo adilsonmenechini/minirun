@@ -23,7 +23,7 @@ from minirun.ports.provider import (
     call_with_retry,
 )
 
-log = get_logger("adapters.openai")
+log = get_logger("providers.openai")
 
 
 def _translate_messages(messages: list[Message]) -> list[dict[str, Any]]:

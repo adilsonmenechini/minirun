@@ -20,13 +20,23 @@ from pathlib import Path
 
 from minirun.log import get_logger
 from minirun.memory import TOOL_EXECUTED, EventJournal
-
-# Re-export replay symbols for convenience
-from minirun.metrics.replay import (  # noqa: F401
+from minirun.memory._db import use_rows
+from minirun.metrics.replay import (
     ReconstructedSession,
     SessionReplay,
     TimelineEntry,
 )
+
+__all__ = [
+    "MetricsCollector",
+    "MetricsSummary",
+    "ToolStats",
+    "ReconstructedSession",
+    "SessionReplay",
+    "TimelineEntry",
+    "format_tool_stats",
+    "format_metrics_summary",
+]
 
 log = get_logger("metrics")
 
@@ -125,7 +135,7 @@ class MetricsCollector:
 
         try:
             with sqlite3.connect(path) as conn:
-                conn.row_factory = sqlite3.Row
+                use_rows(conn)
                 rows = conn.execute(
                     """
                     SELECT
@@ -159,8 +169,8 @@ class MetricsCollector:
 
         stats: list[ToolStats] = []
         for row in rows:
-            tool = row["tool"]
-            count = row["count"]
+            tool: str = row["tool"]
+            count: int = row["count"]
             avg_l = round(row["avg_latency"] or 0.0, 1)
             min_l = round(row["min_latency"] or 0.0, 1)
             max_l = round(row["max_latency"] or 0.0, 1)

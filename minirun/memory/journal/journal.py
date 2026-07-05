@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from minirun.memory._db import use_rows
+
 # ── Event type constants ────────────────────────────────────────────────
 
 SESSION_STARTED = "session_started"
@@ -141,7 +143,7 @@ class EventJournal:
     ) -> list[dict[str, Any]]:
         """Return all events for a session, ordered by timestamp."""
         with sqlite3.connect(self._db_path) as conn:
-            conn.row_factory = sqlite3.Row
+            use_rows(conn)
             rows = conn.execute(
                 "SELECT * FROM events WHERE session_id = ? "
                 "ORDER BY timestamp ASC LIMIT ?",
@@ -156,7 +158,7 @@ class EventJournal:
     ) -> list[dict[str, Any]]:
         """Return events of a specific type, newest first."""
         with sqlite3.connect(self._db_path) as conn:
-            conn.row_factory = sqlite3.Row
+            use_rows(conn)
             rows = conn.execute(
                 "SELECT * FROM events WHERE event_type = ? "
                 "ORDER BY timestamp DESC LIMIT ?",
@@ -170,7 +172,7 @@ class EventJournal:
     ) -> list[dict[str, Any]]:
         """Return the most recent events across all sessions."""
         with sqlite3.connect(self._db_path) as conn:
-            conn.row_factory = sqlite3.Row
+            use_rows(conn)
             rows = conn.execute(
                 "SELECT * FROM events ORDER BY timestamp DESC LIMIT ?",
                 (limit,),
@@ -189,7 +191,7 @@ class EventJournal:
         Ordered by ``last_event`` descending (most recent first).
         """
         with sqlite3.connect(self._db_path) as conn:
-            conn.row_factory = sqlite3.Row
+            use_rows(conn)
             rows = conn.execute(
                 """
                 SELECT
