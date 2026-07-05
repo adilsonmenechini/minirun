@@ -63,25 +63,6 @@ class ToolRegistry:
     def list_tools(self) -> list[dict[str, Any]]:
         return list(self._tools.values())
 
-    def execute(self, name: str, params: dict[str, Any] | None = None) -> ToolResult:
-        tool = self.get_tool(name)
-        if tool is None:
-            return {
-                "success": False,
-                "error": f"Unknown tool: {name}",
-            }
-        execute_fn = tool["execute"]
-        try:
-            result = execute_fn(name, params or {}, tool)
-            return result
-        except Exception as exc:
-            log.error("Tool execution failed: %s — %s", name, exc)
-            return {
-                "success": False,
-                "error": str(exc),
-            }
-
-
 class MCPClientManager:
     """Manages connections to MCP servers and tool discovery."""
 

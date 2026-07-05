@@ -1,4 +1,8 @@
-"""Memory summaries: markdown session summaries + SQLite-backed retrieval."""
+"""Session summaries: markdown session summaries + SQLite-backed retrieval.
+
+Formerly ``memory/summaries.py`` — moved into the ``journal`` sub-package
+for conceptual clarity (summaries are a type of journal entry, not memory).
+"""
 
 from __future__ import annotations
 
@@ -19,7 +23,13 @@ class Summary:
     error: str | None = None
 
 
-class KnowledgeIndex:
+class SessionIndex:
+    """SQLite-backed index of session summaries.
+
+    This was previously named ``KnowledgeIndex`` — renamed to avoid
+    confusion with the ``knowledge`` store.
+    """
+
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
         self._init_schema()
@@ -27,26 +37,23 @@ class KnowledgeIndex:
     def _init_schema(self) -> None:
         with sqlite3.connect(self._db_path) as conn:
             conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS summaries (
+                """CREATE TABLE IF NOT EXISTS summaries (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     session_id TEXT NOT NULL,
                     prompt TEXT NOT NULL,
                     created_at TEXT NOT NULL
-                )
-                """
+                )"""
             )
             conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_summaries_session_id
-                ON summaries(session_id)
-                """
+                "CREATE INDEX IF NOT EXISTS idx_summaries_session_id "
+                "ON summaries(session_id)"
             )
 
     def add(self, session_id: str, prompt: str, created_at: str) -> None:
         with sqlite3.connect(self._db_path) as conn:
             conn.execute(
-                "INSERT INTO summaries(session_id, prompt, created_at) VALUES(?,?,?)",
+                "INSERT INTO summaries(session_id, prompt, created_at) "
+                "VALUES(?,?,?)",
                 (session_id, prompt, created_at),
             )
 
@@ -90,7 +97,7 @@ def summarize_session(
     path.write_text(f"# Session {session_id}\n\n{content}\n", encoding="utf-8")
 
     try:
-        index = KnowledgeIndex(db_path=db_path)
+        index = SessionIndex(db_path=db_path)
         index.add(session_id=session_id, prompt=prompt, created_at=created_at)
     except Exception:
         status = "error" if status == "ok" else status
@@ -105,11 +112,16 @@ def summarize_session(
     )
 
 
-def search_summaries(
+def search_session_summaries(
     query: str, limit: int = 3, db_path: Path | None = None
 ) -> list[dict[str, Any]]:
+    """Search past session summaries by keyword.
+
+    Renamed from ``search_summaries`` when moved into the journal package
+    to make the scope explicit.
+    """
     try:
-        index = KnowledgeIndex(db_path=db_path or _default_db_path())
+        index = SessionIndex(db_path=db_path or _default_db_path())
         return index.search(query=query, limit=limit)
     except Exception:
         return []

@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from minirun.memory.summaries import KnowledgeIndex, search_summaries
+from minirun.memory.journal import SessionIndex, search_session_summaries
 
 
-class TestKnowledgeIndexRetrieval:
+class TestSessionIndexRetrieval:
     def test_search_limit(self, tmp_path: Path):
         db = tmp_path / "index.sqlite"
-        index = KnowledgeIndex(db_path=db)
+        index = SessionIndex(db_path=db)
         index.add(
             session_id="s1",
             prompt="datadog incident",
@@ -33,7 +33,7 @@ class TestKnowledgeIndexRetrieval:
 
     def test_search_no_match(self, tmp_path: Path):
         db = tmp_path / "index.sqlite"
-        index = KnowledgeIndex(db_path=db)
+        index = SessionIndex(db_path=db)
         index.add(
             session_id="s1",
             prompt="datadog incident",
@@ -49,5 +49,5 @@ class TestSearchSummariesEdgeCases:
     ):
         db = tmp_path / "missing/index.sqlite"
         monkeypatch.setenv("MINIRUN_HOME", str(tmp_path))
-        results = search_summaries("anything", db_path=db)
+        results = search_session_summaries("anything", db_path=db)
         assert results == []

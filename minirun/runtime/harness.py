@@ -1,4 +1,9 @@
-"""Runtime harness — core execution loop and bootstrap orchestration."""
+"""Runtime harness — core execution loop and bootstrap orchestration.
+
+Orchestrates initialisation, policy enforcement, provider lifecycle, and
+session finalisation.  Event-journal helpers live in :mod:`events` and
+memory-context helpers in :mod:`context`.
+"""
 
 from __future__ import annotations
 
@@ -10,9 +15,11 @@ from typing import Any
 
 from minirun.boot import init as boot_init
 from minirun.log import get_logger
-from minirun.memory.summaries import search_summaries, summarize_session
+from minirun.memory import PROFILE_LOADED, TOOL_DENIED, TOOL_REQUESTED
 from minirun.ports.provider import BaseProvider, Message, Response
 from minirun.providers import PROVIDERS
+from minirun.runtime.context import _get_default_db_path, _get_default_summary_dir
+from minirun.runtime.events import init_journal, safe_emit
 from minirun.security import PolicyDecision, PolicyEngine
 from minirun.tools import registry
 from minirun.workspace import Workspace
@@ -41,6 +48,9 @@ def bootstrap(allow_all: bool = False) -> None:
     # Initialize Policy Engine
     _policy_engine = PolicyEngine(allow_all=allow_all)
     log.info("Policy Engine initialized (allow_all=%s)", allow_all)
+
+    # Initialize Event Journal
+    init_journal()
 
     # Lazy-init: only run after bootstrap if explicitly requested by caller
     log.info("Tool registry has %d registered tools", len(registry.list_tools()))
@@ -100,6 +110,14 @@ async def bootstrap_workspace_async(
                 profile.name,
                 len(profile.mcp_servers),
             )
+            safe_emit(
+                session_id="system",
+                event_type=PROFILE_LOADED,
+                payload={
+                    "profile": profile_name,
+                    "mcp_servers": len(profile.mcp_servers),
+                },
+            )
         except Exception as exc:
             log.warning(
                 "MCPProfileManager failed to activate profile %s: %s",
@@ -118,31 +136,41 @@ def get_policy_engine() -> PolicyEngine:
 
 
 def check_tool_permission(
-    tool_name: str, params: dict[str, Any] | None = None
+    tool_name: str,
+    params: dict[str, Any] | None = None,
+    session_id: str | None = None,
 ) -> PolicyDecision:
     """Check if a tool invocation is permitted by the Policy Engine.
+
+    Emits ``TOOL_REQUESTED`` and optionally ``TOOL_DENIED`` events.
 
     Args:
         tool_name: Name of the tool being invoked.
         params: Parameters passed to the tool (used for path/domain checks).
+        session_id: Optional session ID for event journaling.
 
     Returns:
-        PolicyDecision: ALLOW or DENY/DENY_WITH_REASON.
+        ``PolicyDecision.ALLOW`` or ``.DENY`` / ``.DENY_WITH_REASON``.
     """
     engine = get_policy_engine()
-    return engine.evaluate(tool_name, params)
+    decision = engine.evaluate(tool_name, params)
 
-
-def _get_default_db_path() -> Path:
-    """Return the default SQLite path for the memory index."""
-    ws = Workspace()
-    return ws.root / "memory" / "sessions" / "index.sqlite"
-
-
-def _get_default_summary_dir() -> Path:
-    """Return the default directory for session summary files."""
-    ws = Workspace()
-    return ws.root / "memory" / "sessions" / "summaries"
+    sid = session_id or "system"
+    safe_emit(
+        sid, TOOL_REQUESTED, {
+            "tool": tool_name,
+            "params": params,
+            "decision": decision.value,
+        },
+    )
+    if decision != PolicyDecision.ALLOW:
+        safe_emit(
+            sid, TOOL_DENIED, {
+                "tool": tool_name,
+                "reason": decision.value,
+            },
+        )
+    return decision
 
 
 async def finalize_session(
@@ -156,9 +184,9 @@ async def finalize_session(
 ) -> None:
     """Finalize a session: persist messages and generate a summary.
 
-    Calls summarize_session() with a sync wrapper around the async provider.
-    If summarization fails, a stub summary with error metadata is written
-    instead (handled internally by summarize_session).
+    Calls :func:`~minirun.memory.journal.summarize_session` with a sync
+    wrapper around the async provider.  If summarisation fails a stub
+    summary with error metadata is written instead.
 
     Args:
         session_id: UUID for the session.
@@ -169,6 +197,8 @@ async def finalize_session(
         summary_dir: Override summary directory (optional).
         db_path: Override SQLite path (optional).
     """
+    from minirun.memory.journal import summarize_session
+
     summary_dir = summary_dir or _get_default_summary_dir()
     db_path = db_path or _get_default_db_path()
 
@@ -199,88 +229,6 @@ async def finalize_session(
         summary_dir=summary_dir,
         db_path=db_path,
     )
-
-
-def build_memory_context(
-    prompt: str,
-    db_path: Path | None = None,
-    max_summaries: int = 2,
-    knowledge_store: Any | None = None,
-    profile_name: str | None = None,
-    max_knowledge_facts: int = 5,
-) -> str | None:
-    """Build a memory context string from relevant past session summaries and knowledge.
-
-    Queries search_summaries() for summaries matching the current prompt,
-    and optionally queries KnowledgeStore for relevant facts.
-    Returns None if no relevant context is found.
-
-    Args:
-        prompt: The current user prompt to match against past summaries.
-        db_path: Override SQLite path (optional).
-        max_summaries: Maximum number of past summaries to include.
-        knowledge_store: Optional KnowledgeStore instance for fact retrieval.
-        profile_name: Profile name for tag-based fact filtering.
-        max_knowledge_facts: Maximum number of knowledge facts to include.
-
-    Returns:
-        Formatted context string, or None if no matches.
-    """
-    lines: list[str] = []
-    has_context = False
-
-    # Session summaries section
-    try:
-        results = search_summaries(query=prompt, limit=max_summaries, db_path=db_path)
-    except Exception:
-        log.warning("Failed to search past summaries", exc_info=True)
-        results = []
-
-    if results:
-        has_context = True
-        lines.append("The following are relevant past session summaries for context:")
-        lines.append("")
-        for r in results:
-            created = r.get("created_at", "?")
-            sid = r.get("session_id", "?")
-            pr = r.get("prompt", "?")
-            lines.append(f"- [{created}] Session {sid}: {pr}")
-        lines.append("")
-
-    # Knowledge facts section
-    if knowledge_store is not None:
-        try:
-            tags = [profile_name] if profile_name else None
-            facts = knowledge_store.get_relevant(
-                query=prompt,
-                tags=tags,
-                limit=max_knowledge_facts,
-            )
-        except Exception:
-            log.warning("Failed to query knowledge store", exc_info=True)
-            facts = []
-
-        if facts:
-            has_context = True
-            if results:
-                lines.append("---")
-                lines.append("")
-            lines.append("## Relevant Knowledge")
-            lines.append("")
-            for f in facts:
-                tags_str = ", ".join(f.tags[:3])
-                preview = f.content[:80]
-                lines.append(
-                    f"- {preview} (tags: {tags_str}, source: {f.source_session_id[:8]})"
-                )
-            lines.append("")
-
-    if not has_context:
-        return None
-
-    lines.append("Use this context to inform your response if relevant.")
-
-    return "\n".join(lines)
 
 
 def get_provider(

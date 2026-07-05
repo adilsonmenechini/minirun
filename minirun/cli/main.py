@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+from pathlib import Path
 import readline  # noqa: F401 — line-editing for input()
 import sys
 import uuid
@@ -15,11 +16,18 @@ from minirun.memory import (
     ExtractionResult,
     KnowledgeExtractor,
     KnowledgeStore,
+    PROVIDER_CALLED,
+    RESPONSE_GENERATED,
+    SESSION_STARTED,
+    SUMMARY_GENERATED,
+    build_knowledge,
 )
 from minirun.ports.provider import Message, Response
+from minirun.runtime.context import build_memory_context
+from minirun.runtime.events import emit_event, get_journal
+from minirun.runtime.state import RuntimeState, RuntimeStateMachine
 from minirun.runtime.harness import (
     bootstrap,
-    build_memory_context,
     finalize_session,
     get_provider,
 )
@@ -39,6 +47,9 @@ Chat commands:
   /profiles                 List available profiles
   /commands                 List custom workspace commands
   /skills                   List installed skills
+  /events, /journal [N]      Show last N journal events (default: 20)
+  /events, /journal --session <id>  Show events for a specific session
+  /events, /journal --type <type>   Show events of a specific type
   /knowledge list           List all stored facts
   /knowledge search <query> Search facts by keyword
   /knowledge delete <id>    Delete a specific fact by ID
@@ -100,6 +111,94 @@ def _list_commands() -> None:
     for c in commands:
         desc = c.get("description", "")
         print(f"  {c['name']:30s}  {desc}  ({c['format']}) {c['path']}")
+
+
+def _list_events(raw_cmd: str) -> None:
+    """Print recent events from the journal.
+
+    Supports:
+      /events                  — last 20 events
+      /events 10               — last 10 events
+      /events --session <id>   — events for a specific session
+      /events --type <type>    — events of a specific type
+    """
+    try:
+        journal = get_journal()
+    except RuntimeError as exc:
+        print(f"Journal not available: {exc}")
+        return
+
+    # Parse arguments after "/events"
+    parts = raw_cmd[len("/events"):].strip().split()
+    limit = 20
+    session_filter: str | None = None
+    type_filter: str | None = None
+
+    i = 0
+    while i < len(parts):
+        part = parts[i]
+        if part == "--session" and i + 1 < len(parts):
+            session_filter = parts[i + 1]
+            i += 2
+        elif part == "--type" and i + 1 < len(parts):
+            type_filter = parts[i + 1]
+            i += 2
+        elif part.isdigit():
+            limit = int(part)
+            i += 1
+        else:
+            i += 1
+
+    try:
+        if session_filter:
+            events = journal.get_session_events(session_filter, limit=limit)
+        elif type_filter:
+            events = journal.get_events_by_type(type_filter, limit=limit)
+        else:
+            events = journal.get_recent_events(limit=limit)
+    except Exception as exc:
+        print(f"Error querying journal: {exc}")
+        return
+
+    if not events:
+        print("No events found.")
+        return
+
+    # Build filter description for header
+    desc_parts: list[str] = []
+    if session_filter:
+        desc_parts.append(f"session={session_filter[:8]}")
+    if type_filter:
+        desc_parts.append(f"type={type_filter}")
+    filter_desc = f" ({', '.join(desc_parts)})" if desc_parts else ""
+
+    print(f"\nRecent journal events{filter_desc} ({len(events)}):")
+    print("─" * 100)
+    for ev in events:
+        ts = ev.get("timestamp", "?")
+        # Trim timestamp to seconds readability
+        if len(ts) > 19:
+            ts = ts[:19]
+        etype = ev.get("event_type", "?")
+        sid = ev.get("session_id", "?")[:8]
+        eid = ev.get("id", "?")[:8]
+        payload = ev.get("payload", {}) or {}
+        # Build a one-line summary from the payload
+        payload_preview = ""
+        if isinstance(payload, dict) and payload:
+            # Pick the most interesting keys
+            preview_keys = ["tool", "provider", "profile", "content_length",
+                           "num_messages", "decision", "reason", "prompt"]
+            parts_preview: list[str] = []
+            for k in preview_keys:
+                v = payload.get(k)
+                if v is not None:
+                    v_str = str(v)[:40]
+                    parts_preview.append(f"{k}={v_str}")
+            if parts_preview:
+                payload_preview = " | " + ", ".join(parts_preview)
+        print(f"  {ts}  {etype:20s}  {sid}  [{eid}]{payload_preview}")
+    print()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -238,6 +337,17 @@ async def run(
     # Generate session ID for persistence
     session_id = str(uuid.uuid4())
     log.info("Starting session %s", session_id)
+    emit_event(session_id, SESSION_STARTED, {
+        "provider": provider_name or "default",
+        "model": model or "default",
+    })
+
+    # ── Explicit state machine ───────────────────────────────────────
+    sm = RuntimeStateMachine(session_id)
+    log.debug("Runtime state machine initialized: %s", sm)
+
+    # BUILD_CONTEXT
+    sm.transition(RuntimeState.BUILD_CONTEXT)
 
     # Initialize knowledge store for context injection
     knowledge_store = KnowledgeStore()
@@ -253,10 +363,26 @@ async def run(
         messages.append(Message(role="system", content=memory_ctx))
     messages.append(Message(role="user", content=message))
 
+    # CALL_PROVIDER
+    sm.transition(RuntimeState.CALL_PROVIDER)
+
+    emit_event(session_id, PROVIDER_CALLED, {
+        "num_messages": len(messages),
+        "provider": provider_name or "default",
+        "model": model or "default",
+    })
     response = await provider.complete(messages)
+    emit_event(session_id, RESPONSE_GENERATED, {
+        "content_length": len(response.content or ""),
+        "finish_reason": getattr(response, "finish_reason", None),
+    })
     sys.stdout.write(response.content)
     if response.content and not response.content.endswith("\n"):
         sys.stdout.write("\n")
+
+    # UPDATE_CONTEXT → FINALIZE
+    sm.transition(RuntimeState.UPDATE_CONTEXT)
+    sm.transition(RuntimeState.FINALIZE)
 
     # Persist session and generate summary
     await finalize_session(
@@ -265,6 +391,14 @@ async def run(
         messages=messages,
         response=response,
         provider=provider,
+    )
+
+    # Post-session knowledge extraction from the response
+    all_msgs = _messages_to_dicts(messages)
+    all_msgs.append({"role": "assistant", "content": response.content or ""})
+    build_knowledge(
+        messages=all_msgs,
+        source_session_id=session_id,
     )
     log.info("Session %s finalized", session_id)
 
@@ -311,6 +445,20 @@ async def run_chat(
             )
         log.info("Resumed session %s (%d messages)", session_id, len(messages))
 
+    # Emit session_started event
+    emit_event(session_id, SESSION_STARTED, {
+        "provider": provider_name or "default",
+        "model": model or "default",
+        "resumed": False,
+    })
+
+    # ── Explicit state machine ───────────────────────────────────────
+    sm = RuntimeStateMachine(session_id)
+    log.debug("Runtime state machine initialized: %s", sm)
+
+    # BUILD_CONTEXT
+    sm.transition(RuntimeState.BUILD_CONTEXT)
+
     # Track the last provider response for finalization
     last_response: Response | None = None
 
@@ -326,6 +474,15 @@ async def run_chat(
     if memory_ctx:
         messages.insert(0, Message(role="system", content=memory_ctx))
         log.debug("Injected memory context from past summaries")
+
+    # ── Persistent readline history ────────────────────────────────
+    _HISTORY_FILE = Path.home() / ".minirun_history"
+    _HISTORY_MAX = 1000
+    try:
+        readline.read_history_file(str(_HISTORY_FILE))
+        readline.set_history_length(_HISTORY_MAX)
+    except FileNotFoundError:
+        pass  # First time — no history yet
 
     print(f"     minirun chat \n \nsession {session_id[:8]}...")
     print("Type /help for commands, /exit to quit.")
@@ -372,6 +529,11 @@ async def run_chat(
                 elif cmd == "/clear":
                     os.system("clear" if sys.platform != "win32" else "cls")
                     continue
+                elif cmd.startswith("/events") or cmd.startswith("/journal"):
+                    # Normalize /journal → /events for _list_events parsing
+                    normalized = cmd.replace("/journal", "/events", 1)
+                    _list_events(normalized)
+                    continue
                 else:
                     print(f"Unknown command: {user_input}. Type /help for commands.")
                     continue
@@ -394,6 +556,14 @@ async def run_chat(
             # Send message to provider
             messages.append(Message(role="user", content=user_input))
 
+            # CALL_PROVIDER
+            sm.transition(RuntimeState.CALL_PROVIDER)
+
+            emit_event(session_id, PROVIDER_CALLED, {
+                "num_messages": len(messages),
+                "provider": provider_name or "default",
+                "model": model or "default",
+            })
             try:
                 provider_response = await provider.complete(messages)
             except Exception as exc:
@@ -404,11 +574,17 @@ async def run_chat(
 
             # Print and accumulate response
             output = provider_response.content or ""
+            emit_event(session_id, RESPONSE_GENERATED, {
+                "content_length": len(output),
+            })
             sys.stdout.write(output)
             if output and not output.endswith("\n"):
                 sys.stdout.write("\n")
 
             messages.append(Message(role="assistant", content=output))
+
+            # UPDATE_CONTEXT
+            sm.transition(RuntimeState.UPDATE_CONTEXT)
 
             # Extract knowledge facts from the response
             try:
@@ -438,6 +614,9 @@ async def run_chat(
     except KeyboardInterrupt:
         print("\n\nInterrupted.")
 
+    # FINALIZE
+    sm.transition(RuntimeState.FINALIZE)
+
     # Finalize: persist and generate summary
     print("\nFinalizing session...")
     ws.save_session(session_id, _messages_to_dicts(messages), {})
@@ -462,8 +641,29 @@ async def run_chat(
                 response=summary_response,
                 provider=provider,
             )
+            emit_event(session_id, SUMMARY_GENERATED, {
+                "prompt": first_prompt[:80],
+            })
         except Exception as exc:
             log.warning("Failed to finalize session: %s", exc)
+
+    # Post-session knowledge extraction: sweep all conversation content
+    try:
+        all_msgs = _messages_to_dicts(messages)
+        if last_response and last_response.content:
+            all_msgs.append({"role": "assistant", "content": last_response.content})
+        build_knowledge(
+            messages=all_msgs,
+            source_session_id=session_id,
+        )
+    except Exception as exc:
+        log.warning("Knowledge build failed: %s", exc)
+
+    # Save readline history
+    try:
+        readline.write_history_file(str(_HISTORY_FILE))
+    except OSError:
+        pass
 
     log.info("Chat session %s finalized", session_id)
 

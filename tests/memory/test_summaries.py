@@ -9,10 +9,10 @@ from uuid import uuid4
 
 import pytest
 
-from minirun.memory.summaries import (
-    KnowledgeIndex,
+from minirun.memory.journal import (
+    SessionIndex,
     Summary,
-    search_summaries,
+    search_session_summaries,
     summarize_session,
 )
 
@@ -30,10 +30,10 @@ class TestSummaryDataclass:
         assert summary.path is None
 
 
-class TestKnowledgeIndex:
+class TestSessionIndex:
     def test_init_creates_schema(self, tmp_path: Path):
         db = tmp_path / "index.sqlite"
-        KnowledgeIndex(db_path=db)
+        SessionIndex(db_path=db)
         assert db.exists()
         with sqlite3.connect(db) as conn:
             rows = conn.execute(
@@ -43,7 +43,7 @@ class TestKnowledgeIndex:
 
     def test_add_and_search(self, tmp_path: Path):
         db = tmp_path / "index.sqlite"
-        index = KnowledgeIndex(db_path=db)
+        index = SessionIndex(db_path=db)
         index.add(
             session_id="s1",
             prompt="datadog incident",
@@ -107,19 +107,19 @@ class TestSummarizeSession:
         assert "provider down" in expected_file.read_text(encoding="utf-8")
 
 
-class TestSearchSummaries:
+class TestSearchSessionSummaries:
     def test_search_returns_matches(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         db = tmp_path / "index.sqlite"
         monkeypatch.setenv("MINIRUN_HOME", str(tmp_path))
-        index = KnowledgeIndex(db_path=db)
+        index = SessionIndex(db_path=db)
         index.add(
             session_id="s1",
             prompt="datadog incident",
             created_at="2026-01-01T00:00:00Z",
         )
-        results = search_summaries("datadog", db_path=db)
+        results = search_session_summaries("datadog", db_path=db)
         assert len(results) == 1
 
     def test_search_empty_when_none(
@@ -127,6 +127,6 @@ class TestSearchSummaries:
     ):
         db = tmp_path / "index.sqlite"
         monkeypatch.setenv("MINIRUN_HOME", str(tmp_path))
-        KnowledgeIndex(db_path=db)
-        results = search_summaries("datadog", db_path=db)
+        SessionIndex(db_path=db)
+        results = search_session_summaries("datadog", db_path=db)
         assert results == []

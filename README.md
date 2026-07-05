@@ -150,9 +150,8 @@ You are a senior SRE. Analyze the situation and respond.
 Invoke via `@profile_name` syntax:
 
 ```bash
-minirun @sre "analyze the terraform plan"
-minirun @datadog "investigate incident 12345"
-minirun @terraform "review this plan"
+minirun @sre "analyze the incident"
+minirun @datadog-mcp "query logs from yesterday"
 ```
 
 ### 🔒 Security by Policy
@@ -250,7 +249,7 @@ LLM_MAX_TOKENS=4096
 minirun "summarize the current incident"
 
 # With profile
-minirun @sre "analyze the terraform plan"
+minirun @sre "analyze the incident"
 
 # Interactive mode
 minirun --chat

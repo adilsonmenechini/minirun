@@ -39,15 +39,43 @@ def handle_knowledge_list(store: KnowledgeStore) -> None:
 
 
 def handle_knowledge_search(store: KnowledgeStore, query: str) -> None:
-    """Handle /knowledge search <query> command."""
+    """Handle /knowledge search <query> [--tag t ...] command."""
     if not query:
-        print("Usage: /knowledge search <query>")
+        print("Usage: /knowledge search <query> [--tag <tag> ...]")
         return
-    facts = store.search(query=query, limit=20)
+
+    # Parse --tag arguments from the raw query string
+    parts = query.split()
+    search_terms: list[str] = []
+    tag_filters: list[str] = []
+    i = 0
+    while i < len(parts):
+        if parts[i] == "--tag" and i + 1 < len(parts):
+            tag_filters.append(parts[i + 1])
+            i += 2
+        else:
+            search_terms.append(parts[i])
+            i += 1
+
+    search_query = " ".join(search_terms)
+    facts = store.search(
+        query=search_query,
+        tags=tag_filters if tag_filters else None,
+        limit=20,
+    )
+
     if not facts:
-        print(f"No facts matching '{query}' found.")
+        msg = f"No facts matching '{search_query}'"
+        if tag_filters:
+            msg += f" with tags {tag_filters}"
+        print(msg + ".")
         return
-    print(f"=== Search results for '{query}' ({len(facts)} facts) ===")
+
+    header = f"=== Search results for '{search_query}'"
+    if tag_filters:
+        header += f" (tags: {', '.join(tag_filters)})"
+    header += f" ({len(facts)} facts) ==="
+    print(header)
     for f in facts:
         tags_str = ", ".join(f.tags[:3])
         print(f"  [{f.id[:8]}] {f.content[:80]} (tags: {tags_str})")
