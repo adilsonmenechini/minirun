@@ -51,7 +51,3 @@ class TestDefaults:
     def test_get_setting_missing_default(self) -> None:
         result = get_setting("provider.nonexistent", {})
         assert result is None
-
-
-
-

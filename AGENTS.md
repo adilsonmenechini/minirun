@@ -1,5 +1,5 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan at
-specs/002-provider-workspace/plan.md
+shell commands, and other important information, read the current plan
+at `specs/008-knowledge-store/plan.md`
 <!-- SPECKIT END -->

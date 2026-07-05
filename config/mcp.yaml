@@ -1,0 +1,26 @@
+# MCP Server Configurations
+#
+# Define MCP servers that minirun can connect to for external tool access.
+# Each server has a name and transport configuration.
+#
+# Transport options:
+#   stdio: Spawn the server as a subprocess (e.g., npx @modelcontextprotocol/server-name)
+#   tcp:   Connect to a running server via host:port
+#
+# Environment variables in the `env` section support ${VAR_NAME} substitution.
+
+servers:
+  # Example: Datadog MCP server via stdio
+  # datadog:
+  #   transport: stdio
+  #   command: npx
+  #   args: ["@modelcontextprotocol/server-datadog"]
+  #   env:
+  #     DD_API_KEY: "${DD_API_KEY}"
+  #     DD_SITE: "datadoghq.com"
+
+  # Example: Custom TCP MCP server
+  # custom:
+  #   transport: tcp
+  #   host: "localhost"
+  #   port: 3100

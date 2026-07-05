@@ -42,8 +42,8 @@
 | `system_prompt` | string | LLM system instructions | Required |
 
 **Relationships**:
-- Profiles in `workspace/agents/` override built-in profiles with same name
-- Profiles in `workspace/agents/` follow the same YAML format as built-in profiles
+- Profiles in `workspace/profiles/` override built-in profiles with same name
+- Profiles in `workspace/profiles/` follow the same YAML format as built-in profiles
 
 ### Provider Config (.env)
 
@@ -87,6 +87,6 @@ Not Created ──(first run)──> Created ──(subsequent runs)──> Read
 2. Custom URL must be valid or absent — never malformed (FR-003)
 3. Workspace must be created only if absent — never overwrite existing content
    (FR-005, Edge Cases)
-4. Workspace profile load order: workspace/agents/ > built-in profiles/
+4. Workspace profile load order: workspace/profiles/ > built-in profiles/
    (FR-006)
 5. `.env` takes precedence over `settings.yaml` for provider settings (FR-008)

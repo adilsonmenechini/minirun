@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from minirun.log import get_logger
 
@@ -34,7 +34,7 @@ def _deep_get(d: Any, keys: tuple[str, ...]) -> Any | None:
     for k in keys:
         if not isinstance(d, dict):
             return None
-        d = d.get(k)
+        d = cast(Any, d.get(k))
     return d
 
 
@@ -55,7 +55,7 @@ def load_yaml(path: Path | None = None) -> dict[str, Any]:
             log.warning("Settings file %s is empty or invalid, ignoring", target)
             return {}
         log.info("Loaded settings from %s", target)
-        return data
+        return cast(dict[str, Any], data)
     except (yaml.YAMLError, OSError) as exc:
         log.warning("Failed to load settings from %s: %s", target, exc)
         return {}
@@ -63,8 +63,9 @@ def load_yaml(path: Path | None = None) -> dict[str, Any]:
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
     for key, value in override.items():
-        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
-            _deep_merge(base[key], value)
+        base_value = base[key]
+        if isinstance(base_value, dict) and isinstance(value, dict):
+            _deep_merge(cast(dict[str, Any], base_value), cast(dict[str, Any], value))
         else:
             base[key] = value
 

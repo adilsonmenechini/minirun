@@ -90,7 +90,7 @@ description: "Complete task list for Provider and Workspace Setup feature — in
 
 - [x] T032 [US3] Write test: workspace init creates subdirectories in `tests/workspace/test_workspace.py`
 - [x] T033 [US3] Write test: existing workspace is not overwritten
-- [x] T034 [US3] Write test: profile from `workspace/agents/` is discoverable
+- [x] T034 [US3] Write test: profile from `workspace/profiles/` is discoverable
 - [x] T035 [US3] Write test: workspace profile overrides built-in profile
 - [x] T036 [US3] Implement workspace init in `minirun/workspace/workspace.py`
 - [x] T037 [US3] Implement profile discovery in `minirun/workspace/workspace.py`
@@ -197,14 +197,14 @@ description: "Complete task list for Provider and Workspace Setup feature — in
 
 ## Phase 10: User Story 7 — Profile Module (P2)
 
-**Story Goal**: A dedicated `minirun/profiles/` module exists per the constitution's 8-module architecture, with profile loading, parsing, and workspace/agents/ override logic.
+**Story Goal**: A dedicated `minirun/profiles/` module exists per the constitution's 8-module architecture, with profile loading, parsing, and workspace/profiles/ override logic.
 
-**Independent Test**: Place a YAML profile in `workspace/agents/` and a built-in profile with the same name in `minirun/profiles/`. Load via `profiles.load("name")` — the workspace version wins.
+**Independent Test**: Place a YAML profile in `workspace/profiles/` and a built-in profile with the same name in `minirun/profiles/`. Load via `profiles.load("name")` — the workspace version wins.
 
 **Spec References**: constitution.md (line 91), data-model.md (lines 44-46), spec.md FR-006 (line 127-128)
 
 - [x] T079 [P] [US7] Create `minirun/profiles/__init__.py` with profile registry and loader
-- [x] T080 [US7] Implement `load(name)` — search `workspace/agents/` first, then `minirun/profiles/`
+- [x] T080 [US7] Implement `load(name)` — search `workspace/profiles/` first, then `minirun/profiles/`
 - [ ] T081 [US7] Implement `list_profiles()` — merge built-in and workspace profiles
 - [x] T082 [P] [US7] Write test: workspace profile overrides built-in in `tests/profiles/test_profiles.py`
 - [x] T083 [P] [US7] Write test: profile not found raises clear error (returns None)

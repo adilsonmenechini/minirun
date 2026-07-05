@@ -1,0 +1,17 @@
+# Knowledge Extraction Patterns
+#
+# Custom regex patterns for the KnowledgeExtractor.
+# These are *merged* with the built-in default patterns (incident, dependency,
+# root_cause, alert, runbook). To override a built-in, define a pattern with
+# the same name.
+#
+# Pattern format:
+#   <name>: "<regex>"
+#
+# All patterns compile with re.IGNORECASE automatically.
+#
+# Example:
+#   deployment: "deploy(ment)?\\s+(failed|rolled|back|completed)"
+#   error_rate: "error\\s+rate\\s+(increased|spiked|exceeded)"
+
+patterns: {}

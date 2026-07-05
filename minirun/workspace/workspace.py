@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
+from typing import Any
 
 from minirun.log import get_logger
 from minirun.profiles import discover_profiles as _discover_profiles
+from minirun.profiles import parse_frontmatter
 
 log = get_logger("workspace")
 
-SUBDIRS = ["memory", "agents", "commands", "skills"]
+SUBDIRS = ["memory", "profiles", "commands", "skills"]
 
 
 class Workspace:
@@ -33,17 +36,47 @@ class Workspace:
         return created
 
     def discover_profiles(self) -> list[dict[str, str]]:
-        return _discover_profiles(self.root / "agents")
+        return _discover_profiles(self.root / "profiles")
 
     def discover_skills(self) -> list[dict[str, str]]:
-        return self._discover_from_dir(self.root / "skills", (".md", ".yaml", ".yml"))
+        return self._discover_from_dir(
+            self.root / "skills", (".md", ".yaml", ".yml"), manifest_name="SKILL"
+        )
 
     def discover_commands(self) -> list[dict[str, str]]:
-        return self._discover_from_dir(self.root / "commands", (".sh", ".py"))
+        return self._discover_from_dir(
+            self.root / "commands",
+            (".md", ".sh", ".py"),
+            manifest_name="COMMAND",
+        )
+
+    def save_session(
+        self, session_id: str, messages: list[dict[str, Any]], state: dict[str, Any]
+    ) -> None:
+        path = self.root / "memory" / "sessions" / f"{session_id}.json"
+        with open(path, "w") as f:
+            json.dump(
+                {"session_id": session_id, "messages": messages, "state": state},
+                f,
+                indent=2,
+            )
+
+    def load_session(
+        self, session_id: str
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        path = self.root / "memory" / "sessions" / f"{session_id}.json"
+        if not path.exists():
+            log.debug("Session file not found: %s", path)
+            return [], {}
+        with open(path) as f:
+            data = json.load(f)
+        return data["messages"], data["state"]
 
     @staticmethod
     def _discover_from_dir(
-        directory: Path, extensions: tuple[str, ...]
+        directory: Path,
+        extensions: tuple[str, ...],
+        manifest_name: str | None = None,
     ) -> list[dict[str, str]]:
         items: list[dict[str, str]] = []
         if not directory.is_dir():
@@ -52,6 +85,41 @@ class Workspace:
         for entry in sorted(directory.iterdir()):
             if entry.suffix in extensions:
                 fmt = entry.suffix.lstrip(".")
-                items.append({"name": entry.stem, "format": fmt, "path": str(entry)})
+                name = entry.stem
+                description = ""
+                if entry.suffix == ".md":
+                    fm = parse_frontmatter(entry)
+                    if fm:
+                        name = fm.get("name", entry.stem)
+                        description = fm.get("description", "")
+                items.append(
+                    {
+                        "name": name,
+                        "format": fmt,
+                        "path": str(entry),
+                        "description": description,
+                    }
+                )
+            elif entry.is_dir() and manifest_name:
+                for ext in extensions:
+                    manifest = entry / f"{manifest_name}{ext}"
+                    if manifest.is_file():
+                        fmt = ext.lstrip(".")
+                        name = entry.name
+                        description = ""
+                        if manifest.suffix == ".md":
+                            fm = parse_frontmatter(manifest)
+                            if fm:
+                                name = fm.get("name", entry.name)
+                                description = fm.get("description", "")
+                        items.append(
+                            {
+                                "name": name,
+                                "format": fmt,
+                                "path": str(manifest),
+                                "description": description,
+                            }
+                        )
+                        break
         log.debug("Discovered %d item(s) in %s", len(items), directory)
         return items

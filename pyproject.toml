@@ -9,10 +9,20 @@ dependencies = [
     "anthropic>=0.30.0",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0",
+    "mcp>=1.0.0,<2.0.0",
 ]
 
 [project.scripts]
 minirun = "minirun.cli.main:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.5.0",
+    "pyright>=1.1.370",
+    "vulture>=2.10",
+]
 
 [tool.uv]
 package = true
@@ -33,6 +43,7 @@ select = ["E", "F", "I", "N", "W", "UP"]
 include = ["minirun", "tests"]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
+venv = ".venv"
 
 reportUnknownVariableType = "warning"
 reportUnknownMemberType = "warning"

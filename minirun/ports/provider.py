@@ -21,7 +21,11 @@ class Message:
 class Tool:
     name: str
     description: str
-    parameters: dict[str, Any] = field(default_factory=dict)
+    parameters: dict[str, Any]
+
+    def __post_init__(self) -> None:
+        if self.parameters is None:
+            self.parameters = {}
 
 
 @dataclass
@@ -81,8 +85,7 @@ class BaseProvider(abc.ABC):
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
-    ) -> Response:
-        ...
+    ) -> Response: ...
 
 
 async def call_with_retry(

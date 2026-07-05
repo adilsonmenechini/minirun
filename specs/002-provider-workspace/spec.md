@@ -87,7 +87,7 @@ four subdirectories.
 1. **Given** an empty project directory, **When** minirun is initialized,
    **Then** the `workspace/` directory is created with `memory/`, `agents/`,
    `commands/`, and `skills/` subdirectories.
-2. **Given** a profile file placed in `workspace/agents/`, **When** the user
+2. **Given** a profile file placed in `workspace/profiles/`, **When** the user
    runs a task referencing that profile, **Then** the runtime discovers and
    loads the profile from the workspace directory.
 3. **Given** a skill placed in `workspace/skills/`, **When** the runtime loads
@@ -124,7 +124,7 @@ four subdirectories.
 - **FR-005**: Upon initialization, minirun MUST create a `workspace/` directory
   with `memory/`, `agents/`, `commands/`, and `skills/` subdirectories if they
   do not already exist.
-- **FR-006**: The runtime MUST discover profiles from `workspace/agents/` in
+- **FR-006**: The runtime MUST discover profiles from `workspace/profiles/` in
   addition to the built-in `profiles/` directory.
 - **FR-007**: The runtime MUST discover skills from `workspace/skills/` and
   commands from `workspace/commands/`.
@@ -140,7 +140,7 @@ four subdirectories.
 - **Workspace**: A project-level directory (`workspace/`) that serves as the
   user's working area within minirun, organized into standard subdirectories.
 - **Agent Profile**: A YAML/Markdown configuration file stored either in
-  `profiles/` (built-in) or `workspace/agents/` (user-created) that defines a
+  `profiles/` (built-in) or `workspace/profiles/` (user-created) that defines a
   profile's name, system prompt, and allowed tools.
 - **Skill**: An extension or capability stored in `workspace/skills/` that adds
   new behavior to the runtime.
@@ -157,7 +157,7 @@ four subdirectories.
   custom endpoint.
 - **SC-003**: Running `minirun init` (or the first run equivalent) creates the
   full `workspace/` directory tree within 1 second.
-- **SC-004**: A profile placed in `workspace/agents/` is automatically
+- **SC-004**: A profile placed in `workspace/profiles/` is automatically
   available for use without any additional configuration steps.
 - **SC-005**: Both OpenAI and Anthropic return equivalent-quality responses for
   the same task when configured with equivalent model capabilities.

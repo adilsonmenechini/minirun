@@ -21,9 +21,7 @@ class TestOpenAIProvider:
                         finish_reason="stop",
                     )
                 ],
-                usage=MagicMock(
-                    prompt_tokens=10, completion_tokens=5, total_tokens=15
-                ),
+                usage=MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15),
                 model="gpt-4o",
             )
         )
@@ -90,9 +88,7 @@ class TestOpenAIProvider:
                         finish_reason="tool_calls",
                     )
                 ],
-                usage=MagicMock(
-                    prompt_tokens=10, completion_tokens=5, total_tokens=15
-                ),
+                usage=MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15),
                 model="gpt-4o",
             )
         )

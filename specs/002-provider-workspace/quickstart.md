@@ -90,7 +90,7 @@ modifications.
 
 ```bash
 # Create a custom profile
-cat > workspace/agents/custom-sre.yaml << 'EOF'
+cat > workspace/profiles/custom-sre.yaml << 'EOF'
 name: custom-sre
 description: Custom SRE specialist
 allowed_tools:
@@ -106,7 +106,7 @@ minirun @custom-sre analyze "Check disk usage"
 ```
 
 **Expected outcome**: The runtime loads and uses the profile from
-`workspace/agents/`. The response reflects the custom system prompt.
+`workspace/profiles/`. The response reflects the custom system prompt.
 
 ---
 

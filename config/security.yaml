@@ -1,0 +1,60 @@
+# Security Policy
+#
+# Defines which tools, paths, and domains are permitted during runtime execution.
+# Every tool invocation MUST pass through the Policy Engine, which evaluates
+# the call against these rules before execution (Constitution Principle V).
+#
+# Default-deny: If this file is missing or a tool is not in allowed_tools,
+# the invocation is DENIED.
+#
+# Tool naming conventions:
+#   - Built-in tools: filesystem.read, http.get, http.post, shell.exec
+#   - MCP tools: {server_name}.{tool_name} (e.g., datadog-mcp.get_incident)
+#   - Skill tools: {skill_name}.{tool_name} (e.g., custom_skill.analyze_incident)
+
+policy:
+  version: "1.0"
+
+  # Tools that are explicitly permitted.
+  # Empty list means no tools are allowed (deny all).
+  allowed_tools:
+    - "filesystem.read"
+    - "filesystem.grep"
+    - "filesystem.glob"
+    - "http.get"
+    - "http.post"
+    # MCP tools (example patterns)
+    - "datadog-mcp.get_incident"
+    - "datadog-mcp.list_monitors"
+    - "datadog-mcp.query_logs"
+    - "datadog-mcp.query_metrics"
+    - "datadog-mcp.search_events"
+    - "datadog-mcp.list_dashboards"
+    - "kubernetes-mcp.get_pods"
+    - "kubernetes-mcp.get_logs"
+    - "prometheus-mcp.query"
+    - "terraform-mcp.parse_plan"
+    - "terraform-mcp.analyze_changes"
+    - "terraform-mcp.get_state"
+    - "terraform-mcp.plan_summary"
+    - "terraform-mcp.validate_config"
+    # Skill tools (example)
+    - "incident_analysis.analyze_incident"
+
+  # Tools that are explicitly forbidden.
+  # Takes precedence over allowed_tools.
+  denied_tools:
+    - "filesystem.write"
+    - "shell.exec"
+
+  # Filesystem paths that tools can access.
+  # Uses prefix matching. Paths outside these are denied.
+  allowed_paths:
+    - "workspace/"
+    - "/tmp/minirun/"
+
+  # HTTP domains that the HTTP tool can call.
+  # Supports wildcard prefix: *.example.com matches api.example.com.
+  allowed_domains:
+    - "api.github.com"
+    - "*.datadoghq.com"

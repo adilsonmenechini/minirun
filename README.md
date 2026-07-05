@@ -1,243 +1,340 @@
-# minirun
+<div align="center">
 
-**Deterministic runtime for executing specialized tasks with LLMs.**
+# ⚡ minirun
 
-minirun is not a framework. It is a minimal, deterministic runtime that executes specialized tasks by loading profiles (not agents) and routing them through pluggable LLM providers. It follows a strict port/adapter architecture — the core has zero knowledge of any specific LLM API.
+**Minimal Runtime for Operational AI**
 
-## Philosophy
+*Not a framework. A deterministic runtime that executes specialized profiles through pluggable LLM providers.*
+
+<br>
+
+[![Python ≥3.11](https://img.shields.io/badge/python-≥3.11-blue?style=flat&logo=python)](https://python.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat)](LICENSE)
+[![Ruff](https://img.shields.io/badge/linting-ruff-purple?style=flat)](https://docs.astral.sh/ruff/)
+[![Pyright](https://img.shields.io/badge/type_check-pyright_strict-2a7de1?style=flat)](https://github.com/microsoft/pyright)
+
+</div>
+
+---
+
+## 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Components, contracts, and execution flow |
+| **[PRD.md](docs/PRD.md)** | Product requirements, personas, and roadmap |
+| **[ADR-001](adr/ADR-001-runtime.md)** | Single Runtime decision |
+| **[ADR-002](adr/ADR-002-provider.md)** | Provider Abstraction decision |
+| **[ADR-003](adr/ADR-003-profiles.md)** | Profiles instead of Agents decision |
+| **[ADR-004](adr/ADR-004-tools.md)** | Tool Registry + MCP decision |
+| **[ADR-005](adr/ADR-005-memory.md)** | SQLite + Summaries decision |
+| **[ADR-006](adr/ADR-006-security.md)** | Default-Deny Security decision |
+
+---
+
+## 🧭 Philosophy
 
 ```
-Runtime  > Framework
-Profiles > Agents
-Events   > Conversations
-Contracts > Magic
-SQLite   > Infrastructure
-Composition > Inheritance
+Runtime  > Framework         |  Profiles > Agents
+Events   > Conversations     |  Contracts > Magic
+SQLite   > Infrastructure    |  Composition > Inheritance
 ```
 
-## What minirun is NOT
+minirun is **not**:
+- An agent framework (no Agent, Planner, Supervisor, Critic)
+- LangChain, CrewAI, LangGraph, or AutoGen
+- A multi-agent orchestrator
+- A vector database, RAG pipeline, or embedding service
 
-minirun does not implement:
-- Agent, Planner, Supervisor, Critic, Researcher, Reviewer
-- LangChain, CrewAI, LangGraph, AutoGen
-- RAG, Vector DB, Embeddings, Reflection, Memory Graph (yet)
+minirun **is**:
+- A lightweight runtime for operational AI workflows
+- Specialized profiles executed through a deterministic loop
+- Provider-agnostic (OpenAI, Anthropic, or any LLM)
+- Secure by default (every tool call passes through policy)
 
-Those can be added later. The core stays small.
+---
 
-## Architecture
+## 🏗️ Architecture
+
+```
+CLI
+ ↓
+Runtime ───→ Provider ───→ Tool Registry ───→ Memory (SQLite)
+ ↓              ↓                ↓
+Profiles     OpenAI/Anthropic   Policy Engine
+```
 
 ```
 minirun/
-├── runtime/         # Core execution harness
-├── providers/       # Port interface + facade
-├── adapters/        # Concrete provider implementations (OpenAI, Anthropic)
-├── ports/           # Abstract contracts (BaseProvider, Message, Tool, etc.)
-├── profiles/        # Profile loading and discovery
-├── config/          # Settings (settings.yaml + .env for secrets)
-├── workspace/       # User workspace (memory/, agents/, commands/, skills/)
-├── cli/             # Command-line interface
-└── log/             # Structured logging
+├── runtime/      # Bootstrap, provider resolution, memory finalization
+├── ports/        # Abstract contracts (BaseProvider, Message, ToolCall)
+├── providers/    # Provider resolution facade
+├── adapters/     # OpenAI, Anthropic implementations
+├── tools/        # Tool Registry, HTTP client, MCP client manager
+├── security/     # Policy Engine — evaluate every tool call
+├── memory/       # Session summaries + SQLite KnowledgeIndex
+├── profiles/     # Profile discovery & loading (YAML/Markdown)
+├── config/       # settings.yaml + .env (secrets only)
+├── workspace/    # User workspace (memory/, profiles/, commands/, skills/)
+├── cli/          # Argument parser & entry point
+└── log/          # Structured logging
 ```
 
-### Runtime
-
-The runtime is the heart. It follows a simple loop:
+### 🔄 The Runtime Loop
 
 ```python
 while True:
     context = build_context()
     response = provider.complete(context)
     if response.has_tool():
+        policy.check(response.tool)  # default-deny
         tool.execute()
         continue
     break
 ```
 
-### Provider Interface
+On startup, `bootstrap()` initializes:
 
-Every LLM provider implements the same abstract contract:
+```
+bootstrap()
+├── boot_init()         → logging, .env, settings.yaml
+├── Workspace.init()    → workspace/{memory,profiles,commands,skills}/
+├── PolicyEngine()      → config/security.yaml (default-deny)
+└── ToolRegistry        → http.get, http.post
+```
+
+---
+
+## 🎯 Features
+
+### 🔌 Pluggable Providers
+
+Every LLM provider implements a single abstract contract:
 
 ```python
 class BaseProvider(abc.ABC):
     async def complete(
-        self,
-        messages: list[Message],
-        tools: list[Tool] | None = None,
-        model: str | None = None,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
+        self, messages, tools=None,
+        model=None, temperature=None, max_tokens=None,
     ) -> Response: ...
 ```
 
-**Current providers:**
-- [OpenAI](https://openai.com) — `OpenAIProvider` (default model: `gpt-4o`)
-- [Anthropic](https://anthropic.com) — `AnthropicProvider` (default model: `claude-sonnet-4-20250514`)
+| Provider | Default Model | Status |
+|----------|--------------|--------|
+| [OpenAI](https://openai.com) | `gpt-4o` | ✅ Production |
+| [Anthropic](https://anthropic.com) | `claude-sonnet-4-20250514` | ✅ Production |
 
-All providers include automatic retry with exponential backoff and proper error classification (AuthenticationError, RateLimitError, ConnectionError, ModelNotFoundError, ProviderError).
+Automatic retry with exponential backoff. Error classification: `AuthenticationError`, `RateLimitError`, `ConnectionError`, `ModelNotFoundError`, `ProviderError`.
 
-### Profiles (not Agents)
+### 📋 Profiles (not Agents)
 
-Profiles define what a persona can do — system prompt, allowed tools, preferred provider.
+Static configuration files — Markdown with frontmatter YAML. Profiles can configure MCP servers for tool extensibility.
 
-```
+```yaml
+---
 name: sre
 description: Senior SRE specialized in incident response
 allowed_tools:
-  - incidents
-  - monitors
-  - logs
-system_prompt: |
-  You are a senior SRE. Analyze the situation and respond.
+  - filesystem.read
+  - http.get
+  - mcp.server.query
+mcp_servers:
+  - name: datadog-mcp
+    transport: stdio
+    command: npx
+    args: ["@datadog/mcp-server"]
+---
+You are a senior SRE. Analyze the situation and respond.
 ```
 
-Profiles are stored as YAML or Markdown files in the workspace's `agents/` directory and are invoked via `@profile_name` syntax.
+Invoke via `@profile_name` syntax:
 
-### Workspace
-
-Upon first run, minirun creates a `workspace/` directory at the project root:
-
-```
-workspace/
-├── memory/      # Session persistence (JSON files)
-├── agents/      # User-defined profiles
-├── commands/    # Custom CLI commands
-└── skills/      # Extensions and capabilities
+```bash
+minirun @sre "analyze the terraform plan"
+minirun @datadog "investigate incident 12345"
+minirun @terraform "review this plan"
 ```
 
-## Quick Start
+### 🔒 Security by Policy
 
-### Installation
+Every tool invocation passes through the **Policy Engine** before execution. Default-deny: if a tool isn't in `allowed_tools`, it's denied.
+
+```yaml
+# config/security.yaml
+policy:
+  allowed_tools:    [filesystem.read, http.get, http.post]
+  denied_tools:     [filesystem.write, shell.exec]
+  allowed_paths:    [workspace/, /tmp/minirun/]
+  allowed_domains:  [*.datadoghq.com, api.github.com]
+```
+
+### 🧠 Memory & Context
+
+After each session, minirun automatically:
+1. Generates a bullet summary via the LLM
+2. Writes a markdown file to `workspace/memory/sessions/summaries/`
+3. Indexes metadata in local SQLite
+
+On the next run, relevant past summaries are retrieved by keyword and injected as system context — zero-config continuity.
+
+### 🔗 MCP Support
+
+Connect to external tools via [Model Context Protocol](https://modelcontextprotocol.io). Supports `stdio` and `tcp` transports, configured per-profile.
+
+```yaml
+# profiles/sre.md
+---
+name: sre
+description: Senior SRE incident response
+allowed_tools:
+  - filesystem.read
+  - http.get
+mcp_servers:
+  - name: datadog-mcp
+    transport: stdio
+    command: npx
+    args: ["@datadog/mcp-server"]
+    env:
+      DD_API_KEY: "${DD_API_KEY}"
+---
+You are a senior SRE. Analyze the situation and respond.
+```
+
+Invoke via `@profile_name` syntax with MCP servers auto-connected:
+
+```bash
+minirun @sre "investigate incident 12345"
+```
+
+### 💬 Interactive Chat
+
+```
+minirun --chat                           # Start interactive session
+minirun --chat --session-id abc-123      # Resume previous session
+```
+
+Chat commands: `/exit`, `/quit`, `/help`, `/session`
+
+---
+
+## 🚀 Quick Start
+
+### Install
 
 ```bash
 pip install minirun
-```
-
-Or with [uv](https://docs.astral.sh/uv/):
-
-```bash
+# or
 uv sync
 ```
 
-### Configuration
-
-Copy the example environment file and configure your LLM provider:
+### Configure
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
-
-```
-# Generic LLM config (used by all providers)
+```env
 LLM_PROVIDER=openai
-LLM_API_KEY=sk-your-api-key-here
-LLM_BASE_URL=          # Optional: custom API endpoint
+LLM_API_KEY=sk-your-key-here
 LLM_MODEL=gpt-4o
 LLM_MAX_TOKENS=4096
 ```
 
-**Precedence:** `.env` > `config/settings.yaml` > hardcoded defaults.
+> **Precedence:** `.env` > `config/settings.yaml` > hardcoded defaults.
+> API keys MUST go in `.env` — never in `settings.yaml`.
 
-API keys MUST go in `.env` — never in `settings.yaml`.
-
-### Usage
+### Use
 
 ```bash
-# Run a task with the default provider
+# Single task
 minirun "summarize the current incident"
 
-# Use a specific profile
+# With profile
 minirun @sre "analyze the terraform plan"
 
-# Specify provider and model explicitly
-minirun --provider anthropic --model claude-opus-4-20250514 "explain this error"
+# Interactive mode
+minirun --chat
 
-# Continue an existing session
-minirun abc123 "what was the root cause?"
+# Explicit provider & model
+minirun --provider anthropic --model claude-sonnet-4-20250514 "explain this error"
 
-# Verbose output
-minirun -v "debug this issue"
-minirun -vv "trace the execution"
+# Bypass policy (dev only)
+minirun --allow-all "run a diagnostic script"
+
+# List resources
+minirun --profiles
+minirun --tools
+minirun --commands
 ```
 
-#### CLI Options
+### CLI Options
 
-| Option | Description |
-|--------|-------------|
-| `session_or_profile` | Session ID to resume, or `@profile` to use a persona |
-| `message` | The prompt to send to the LLM |
+| Flag | Description |
+|------|-------------|
+| `message` | Prompt to send to the LLM |
 | `--provider` | LLM provider: `openai` or `anthropic` |
-| `--model` | Model identifier (overrides provider default) |
+| `--model` | Model identifier |
+| `--chat` | Start interactive chat session |
+| `--session-id` | Resume an existing session by ID |
 | `--temperature` | Sampling temperature |
 | `--max-tokens` | Maximum output tokens |
-| `-v` / `-vv` | Increase verbosity (INFO / DEBUG) |
+| `--allow-all` | Bypass policy enforcement (default: deny) |
+| `--tools` | List registered tools and exit |
+| `--profiles` | List available profiles and exit |
+| `--skills` | List installed skills and exit |
+| `--commands` | List custom commands and exit |
+| `-v` / `-vv` | Verbosity: INFO / DEBUG |
 
-### Session Persistence
+---
 
-minirun saves conversation state to `workspace/memory/sessions/`. Resume a session by passing its ID:
+## 📁 Project Structure
+
+```
+minirun/
+├── runtime/         # Bootstrap, loop, policy, memory finalization
+├── ports/           # Abstract contracts
+├── providers/       # Provider facade
+├── adapters/        # OpenAI, Anthropic implementations
+├── tools/           # Registry, HTTP, MCP client
+├── security/        # Policy Engine (default-deny)
+├── memory/          # SQLite + session summaries
+├── profiles/        # Profile discovery & parsing
+├── config/          # settings.yaml + .env loader
+├── workspace/       # User workspace abstraction
+├── cli/             # CLI entry point
+└── docs/            # Architecture, PRD, ADRs
+```
+
+---
+
+## 🛠️ Development
 
 ```bash
-minirun abc123 "continue the analysis"
+uv sync --dev                  # Install dev dependencies
+uv run pytest -v               # Run tests
+uv run pyright                 # Type check (strict mode)
+uv run ruff check .            # Lint
 ```
 
-## Project Structure
+**Stack:** Python ≥ 3.11 · [pytest](https://docs.pytest.org/) + [pytest-asyncio](https://pytest-asyncio.readthedocs.io/) · [Ruff](https://docs.astral.sh/ruff/) · [Pyright](https://github.com/microsoft/pyright) (strict) · [uv](https://docs.astral.sh/uv/)
 
-```
-.
-├── pyproject.toml          # Project metadata and dependencies
-├── .env.example            # Environment variable template
-├── minirun/                # Core package
-│   ├── __init__.py
-│   ├── boot.py             # Initialization (logging, env, settings)
-│   ├── log.py              # Structured logging setup
-│   ├── runtime/
-│   │   └── harness.py      # Execution bootstrap and provider resolution
-│   ├── ports/
-│   │   └── provider.py     # Abstract contracts (BaseProvider, Message, Tool, etc.)
-│   ├── providers/
-│   │   └── __init__.py     # Provider facade and re-exports
-│   ├── adapters/
-│   │   ├── openai.py       # OpenAI provider implementation
-│   │   └── anthropic.py    # Anthropic provider implementation
-│   ├── profiles/
-│   │   ├── __init__.py
-│   │   └── loader.py       # Profile discovery and loading
-│   ├── config/
-│   │   ├── __init__.py     # .env loading
-│   │   ├── loader.py       # settings.yaml loading and merging
-│   │   └── settings.yaml   # Default configuration
-│   ├── workspace/
-│   │   └── workspace.py    # Workspace directory management
-│   └── cli/
-│       └── main.py         # CLI argument parsing and entry point
-├── specs/                  # Feature specifications
-├── tests/                  # Test suite
-└── workspace/              # User workspace (auto-created)
-```
+### Implementation Status
 
-## Development
+| Sprint | Feature | Status |
+|--------|---------|--------|
+| 1 | Core Runtime | ✅ |
+| 2 | Multi-Provider + Workspace | ✅ |
+| 3 | MCP + Policy Engine + HTTP Tool | ✅ |
+| 4 | Domain Integrations (Workspace MCP) | ✅ |
+| 5 | Memory Summaries + KnowledgeIndex | ✅ |
+| 6 | Interactive Chat + Session Resume | ✅ |
+| 7 | Filesystem Tools (read, grep, glob) | ✅ |
+| 8 | Docs: ARCHITECTURE, PRD, ADRs | ✅ |
 
-```bash
-# Install with dev dependencies
-uv sync --dev
+---
 
-# Run tests
-uv run pytest
+<div align="center">
 
-# Type checking
-uv run pyright
+**MIT License** · Built for SRE engineers who need LLMs without the framework tax
 
-# Linting
-uv run ruff check
-```
-
-The project requires Python ≥ 3.11 and uses:
-- [pytest](https://docs.pytest.org/) for testing
-- [Ruff](https://docs.astral.sh/ruff/) for linting
-- [Pyright](https://github.com/microsoft/pyright) for type checking
-- [uv](https://docs.astral.sh/uv/) for package management
-
-## License
-
-[MIT](LICENSE)
+</div>

@@ -68,11 +68,7 @@ class OpenAIProvider(BaseProvider):
         self._api_key = api_key or os.environ.get("LLM_API_KEY", "")
         self._base_url = base_url or os.environ.get("LLM_BASE_URL")
         self._client = client
-        self._model = (
-            model
-            or os.environ.get("LLM_MODEL")
-            or self.MODEL
-        )
+        self._model = model or os.environ.get("LLM_MODEL") or self.MODEL
         self._temperature = temperature
         self._max_retries = max_retries
         if max_tokens is not None:
@@ -129,9 +125,12 @@ class OpenAIProvider(BaseProvider):
         if tokens is not None:
             kwargs["max_tokens"] = tokens
 
-        async def _do_request() -> Any:
+        async def _do_request() -> ChatCompletion:
             try:
-                return await client.chat.completions.create(**kwargs)
+                return cast(
+                    ChatCompletion,
+                    await client.chat.completions.create(**kwargs),
+                )
             except Exception as exc:
                 msg = str(exc)
                 log.warning("OpenAI API error: %s", msg)
@@ -167,11 +166,14 @@ class OpenAIProvider(BaseProvider):
         if message.tool_calls:
             tool_calls = []
             for tc in message.tool_calls:
+                fn = getattr(tc, "function", None)
+                if fn is None:
+                    continue
                 tool_calls.append(
                     ToolCall(
                         id=tc.id,
-                        name=tc.function.name,
-                        arguments=json.loads(tc.function.arguments),
+                        name=fn.name,
+                        arguments=json.loads(fn.arguments),
                     )
                 )
             log.debug("Parsed %d tool call(s) from response", len(tool_calls))

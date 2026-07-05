@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from minirun.cli.main import build_parser, run
+from minirun.cli.main import build_parser, dispatch_listing, run
 
 
 class TestCliParser:
@@ -48,6 +48,46 @@ class TestCliParser:
         args = parser.parse_args(["--model", "gpt-4o", "summarise", "this"])
         assert args.model == "gpt-4o"
         assert args.message == ["summarise", "this"]
+
+
+class TestCliListing:
+    def test_tools_flag_parsed(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["--tools"])
+        assert args.tools is True
+
+    def test_profiles_flag_parsed(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["--profiles"])
+        assert args.profiles is True
+
+    def test_skills_flag_parsed(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["--skills"])
+        assert args.skills is True
+
+    def test_commands_flag_parsed(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["--commands"])
+        assert args.commands is True
+
+    def test_listing_flags_default_false(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args([])
+        assert args.tools is False
+        assert args.profiles is False
+        assert args.skills is False
+        assert args.commands is False
+
+    def test_dispatch_tools_returns_true(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["--tools"])
+        assert dispatch_listing(args) is True
+
+    def test_dispatch_no_listing_returns_false(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["hello"])
+        assert dispatch_listing(args) is False
 
 
 class TestCliRun:

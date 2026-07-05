@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from minirun.config import load_env
 from minirun.config.loader import load_settings

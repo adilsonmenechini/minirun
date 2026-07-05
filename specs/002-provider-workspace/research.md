@@ -58,7 +58,7 @@ Path resolved relative to project root (where `.env` or `settings.yaml` lives).
 
 ### Profile Loading from Workspace
 
-**Decision**: Profile loader searches `workspace/agents/` in addition to
+**Decision**: Profile loader searches `workspace/profiles/` in addition to
 built-in `profiles/` directory. User profiles override built-in profiles with
 the same name.
 

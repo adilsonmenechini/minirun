@@ -4,9 +4,10 @@ Profiles define agent personas (system prompts, allowed tools) and can be stored
 in the workspace's agents/ directory or in a built-in profiles directory.
 """
 
-from minirun.profiles.loader import discover_profiles, load_profile
+from minirun.profiles.loader import discover_profiles, load_profile, parse_frontmatter
 
 __all__ = [
     "discover_profiles",
     "load_profile",
+    "parse_frontmatter",
 ]
