@@ -75,7 +75,7 @@ def load_knowledge_patterns(
     data = _load_yaml_safe(config_path or KNOWLEDGE_CONFIG_PATH)
     raw_patterns: dict[str, str] | None = data.get("patterns") if data else None
 
-    if not raw_patterns or not isinstance(raw_patterns, dict):
+    if not raw_patterns:
         return dict(DEFAULT_PATTERNS)
 
     merged: dict[str, Pattern[str]] = {}
@@ -86,8 +86,6 @@ def load_knowledge_patterns(
 
     # Apply custom patterns (overrides built-ins with same name)
     for name, regex_str in raw_patterns.items():
-        if not isinstance(regex_str, str):
-            continue
         try:
             compiled = re.compile(regex_str, re.IGNORECASE)
             merged[name] = compiled

@@ -23,10 +23,6 @@ class Tool:
     description: str
     parameters: dict[str, Any]
 
-    def __post_init__(self) -> None:
-        if self.parameters is None:
-            self.parameters = {}
-
 
 @dataclass
 class ToolCall:
